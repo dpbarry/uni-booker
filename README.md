@@ -1,1 +1,1 @@
-Website for students and professorts to coordinate meeting times.
+Website for students and professors to coordinate meeting times.
