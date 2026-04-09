@@ -11,7 +11,7 @@ export const PANEL_TITLE = { dashboard: 'Dashboard', calendar: 'Calendar' };
 export const AUTH_PAGE_URL = 'auth.html';
 export const MAIN_PAGE_URL = 'main.html';
 
-export const panelUrls = { dashboard: 'dashboard.html', calendar: 'calendar.html' };
+export const PANEL_URL = { dashboard: 'dashboard.html', calendar: 'calendar.html' };
 
 const parser = new DOMParser();
 
@@ -35,7 +35,7 @@ export const segment = () =>
 export const panelId = () => {
     const value = segment();
     if (value === 'signin') return null;
-    return value in panelUrls ? value : 'dashboard';
+    return value in PANEL_URL ? value : 'dashboard';
 };
 
 const mountPanel = (html) => {
@@ -54,7 +54,7 @@ const mountPanel = (html) => {
 };
 
 export const fetchPanel = async (name) => {
-    const url = panelUrls[name];
+    const url = PANEL_URL[name];
     if (!url) throw new Error(`unknown panel: ${name}`);
     return mountPanel(await fetchText(url));
 };
