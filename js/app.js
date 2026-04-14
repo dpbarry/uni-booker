@@ -1,169 +1,69 @@
-import {
-  APP_TITLE,
-  PANEL_TITLE,
-  authKey,
-  crossfade,
-  entryMs,
-  fetchPanel,
-  initTheme,
-  panelId,
-  progress,
-  segment,
-} from './global.js';
+import { APP_TITLE, authKey, entryMs, initTheme } from './global.js';
 import { ensureAuthPage } from './auth.js';
-import { ensureMainPage, getMainPageRefs, setActiveNav } from './main.js';
+import { ensureMainPage, getAppView } from './main.js';
 
 const pageContainer = document.getElementById('page-container');
 
 const state = {
   busy: false,
-  pendingPanel: null,
-  activePanel: null,
-  animateNextMainEntry: false,
+  animateNextEntry: false,
 };
 
 const isAuthed = () => sessionStorage.getItem(authKey) === '1';
 
-const syncDocTitle = () => {
-  if (!isAuthed()) {
-    document.title = APP_TITLE;
-    return;
-  }
-  const id = panelId();
-  const label = id && PANEL_TITLE[id];
-  document.title = label ? `${APP_TITLE} · ${label}` : APP_TITLE;
-};
-
-const withNavigationLock = async (task) => {
-  state.busy = true;
-  try {
-    await task();
-  } finally {
-    state.busy = false;
-    if (state.pendingPanel) {
-      const queued = state.pendingPanel;
-      state.pendingPanel = null;
-      void showPanel(queued);
-    }
-  }
-};
-
 const onSignIn = () => {
   sessionStorage.setItem(authKey, '1');
-  state.animateNextMainEntry = true;
-  location.replace('#/dashboard');
+  state.animateNextEntry = true;
+  location.replace('#/');
 };
 
-async function showPanel(panelName) {
-  if (state.busy) {
-    state.pendingPanel = panelName;
-    setActiveNav(panelName);
-    return;
+async function enterMainPage() {
+  state.busy = true;
+  const animate = state.animateNextEntry;
+  state.animateNextEntry = false;
+
+  try {
+    await ensureMainPage(pageContainer, { append: animate });
+    const appView = getAppView();
+
+    if (animate) {
+      appView.classList.add('from-signin-layer');
+      document.body.classList.add('main-entry-animation');
+      await new Promise((r) => setTimeout(r, entryMs));
+      document.body.classList.remove('main-entry-animation');
+      appView.classList.remove('from-signin-layer');
+    }
+
+    document.documentElement.classList.remove('first-paint-main');
+    appView.classList.add('is-visible');
+    document.getElementById('view-auth')?.remove();
+  } finally {
+    state.busy = false;
   }
-
-  const previousPanel = state.activePanel;
-
-  await withNavigationLock(async () => {
-    setActiveNav(panelName);
-    progress.start();
-
-    try {
-      const nextPanel = await fetchPanel(panelName);
-      const { panelRoot } = getMainPageRefs();
-      const previousNode = panelRoot.querySelector('.panel');
-      panelRoot.appendChild(nextPanel);
-      progress.stop();
-      await crossfade(previousNode, nextPanel);
-      state.activePanel = panelName;
-    } catch (error) {
-      progress.stop();
-      if (previousPanel) setActiveNav(previousPanel);
-      throw error;
-    }
-  });
-}
-
-async function enterMainPage(panelName) {
-  if (state.busy) return;
-
-  const animateEntry = state.animateNextMainEntry;
-  state.animateNextMainEntry = false;
-  const previousPanel = state.activePanel;
-
-  await withNavigationLock(async () => {
-    await ensureMainPage(pageContainer, { append: animateEntry });
-
-    const { appView, panelRoot } = getMainPageRefs();
-
-    if (animateEntry) progress.start();
-    else {
-      document.documentElement.classList.remove('first-paint-main');
-      appView.classList.add('is-visible');
-      document.getElementById('view-auth')?.classList.remove('is-visible');
-    }
-
-    setActiveNav(panelName);
-
-    try {
-      const nextPanel = await fetchPanel(panelName);
-      const previousNode = panelRoot.querySelector('.panel');
-      panelRoot.appendChild(nextPanel);
-
-      if (animateEntry) {
-        progress.stop();
-        appView.classList.add('from-signin-layer');
-        document.body.classList.add('main-entry-animation');
-        await new Promise((resolve) => setTimeout(resolve, entryMs));
-        document.body.classList.remove('main-entry-animation');
-        appView.classList.remove('from-signin-layer');
-        document.documentElement.classList.remove('first-paint-main');
-        appView.classList.add('is-visible');
-        document.getElementById('view-auth')?.remove();
-      } else {
-        await crossfade(previousNode, nextPanel);
-      }
-
-      state.activePanel = panelName;
-    } catch (error) {
-      if (animateEntry) progress.stop();
-      if (previousPanel) setActiveNav(previousPanel);
-      throw error;
-    }
-  });
 }
 
 const route = async () => {
-  syncDocTitle();
+  document.title = APP_TITLE;
   if (state.busy) return;
 
   if (!isAuthed()) {
-    if (segment() !== 'signin') {
+    if (location.hash !== '#/signin') {
       location.replace('#/signin');
       return;
     }
     await ensureAuthPage(pageContainer, onSignIn);
-    state.activePanel = null;
     return;
   }
 
-  const nextPanel = panelId();
-  if (!nextPanel) {
-    location.replace('#/dashboard');
+  if (location.hash && location.hash !== '#/') {
+    location.replace('#/');
     return;
   }
 
   const appView = document.getElementById('view-app');
   if (!appView || !appView.classList.contains('is-visible')) {
-    await enterMainPage(nextPanel);
-    return;
+    await enterMainPage();
   }
-
-  if (nextPanel === state.activePanel) {
-    setActiveNav(nextPanel);
-    return;
-  }
-
-  await showPanel(nextPanel);
 };
 
 const failHard = (error) => {
@@ -185,7 +85,8 @@ window.addEventListener('hashchange', runRoute);
     return;
   }
 
-  const emptyHash = !location.hash || location.hash === '#' || location.hash === '#/';
-  if (emptyHash) location.replace(isAuthed() ? '#/dashboard' : '#/signin');
+  const hash = location.hash;
+  if (isAuthed() && hash !== '#/') location.replace('#/');
+  else if (!isAuthed() && hash !== '#/signin') location.replace('#/signin');
   else await route();
 })();

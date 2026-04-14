@@ -7,15 +7,8 @@ export const ensureMainPage = async (pageContainer, { append = false } = {}) => 
     syncThemeToggleTitles();
 };
 
-export const getMainPageRefs = () => {
+export const getAppView = () => {
     const appView = document.getElementById('view-app');
-    const panelRoot = document.getElementById('panel-root');
-    if (!appView || !panelRoot) throw new Error('main page not mounted');
-    return { appView, panelRoot };
-};
-
-export const setActiveNav = (panelName) => {
-    document.querySelectorAll('.nav-link').forEach((link) => {
-        link.classList.toggle('is-active', link.dataset.route === panelName);
-    });
+    if (!appView) throw new Error('main page not mounted');
+    return appView;
 };
