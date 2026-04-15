@@ -1,0 +1,94 @@
+<div id="view-app" class="top-page">
+    <div class="app-layout">
+        <header class="topbar">
+            <h1 class="wordmark">UniBooker</h1>
+            <div class="topbar-tools">
+                <button type="button" class="icon-button press" title="Notifications">
+                    <svg width="20" height="20" viewBox="0 0 24 24">
+                        <use href="assets/icons.svg#bell" />
+                    </svg>
+                </button>
+                <button type="button" class="icon-button press theme-toggle" title="Dark mode">
+                    <svg class="icon-moon" width="20" height="20" viewBox="0 0 24 24">
+                        <use href="assets/icons.svg#theme-moon" />
+                    </svg>
+                    <svg class="icon-sun" width="20" height="20" viewBox="0 0 24 24">
+                        <use href="assets/icons.svg#theme-sun" />
+                    </svg>
+                </button>
+                <button type="button" class="icon-button press" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24">
+                        <use href="assets/icons.svg#settings" />
+                    </svg>
+                </button>
+                <div class="account">
+                    <button type="button" class="avatar press" title="Account" aria-haspopup="menu" aria-expanded="false">
+                        <span class="avatar-initial">U</span>
+                    </button>
+                    <div class="account-menu" role="menu" hidden>
+                        <div class="account-row account-identity" role="presentation">
+                            <span class="account-avatar"><span class="account-avatar-initial">U</span></span>
+                            <span class="account-meta">
+                                <span class="account-name account-email">user@example.com</span>
+                                <span class="account-role">Role</span>
+                            </span>
+                        </div>
+                        <div class="account-divider"></div>
+                        <button type="button" class="account-row account-signout" role="menuitem">
+                            <svg class="account-signout-icon" width="16" height="16" viewBox="0 0 24 24"><use href="assets/icons.svg#log-out" /></svg>
+                            <span class="account-name">Sign out</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <main class="main-wrap">
+            <section class="card card-wide card-slots" style="--i: 0" data-role="owner">
+                <header class="card-header">
+                    <div class="card-heading">
+                        <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#clock" /></svg>
+                        <h2 class="card-title">Slots</h2>
+                    </div>
+                    <button type="button" class="primary-button press" data-action="new-slot">
+                        <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#plus" /></svg>
+                        <span>New slot</span>
+                    </button>
+                </header>
+                <form class="slot-form" hidden>
+                    <input type="date" name="date" required>
+                    <input type="time" name="time" step="60" required>
+                    <button type="submit" class="primary-button press">Create</button>
+                    <button type="button" class="primary-button-ghost press" data-action="cancel-slot">Cancel</button>
+                </form>
+                <ul class="slot-list" hidden></ul>
+                <div class="empty-state">No slots yet.</div>
+            </section>
+
+            <section class="card card-wide card-pinned" style="--i: 0" data-role="student">
+                <header class="card-header">
+                    <div class="card-heading">
+                        <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#users" /></svg>
+                        <h2 class="card-title">Available slots</h2>
+                    </div>
+                </header>
+                <ul class="slot-list" hidden></ul>
+                <div class="empty-state">No available slots.</div>
+            </section>
+
+            <section class="card card-full" style="--i: 1">
+                <header class="card-header">
+                    <div class="card-heading">
+                        <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#calendar-days" /></svg>
+                        <h2 class="card-title">Upcoming</h2>
+                    </div>
+                    <div class="view-switcher" role="tablist" aria-label="View">
+                        <button type="button" class="view-switcher-option" role="tab" aria-selected="true" data-view="month">Month</button>
+                        <button type="button" class="view-switcher-option" role="tab" aria-selected="false" data-view="week">Week</button>
+                    </div>
+                </header>
+                <!-- TODO: backend has no GET /bookings endpoint yet — wire this card once it exists. -->
+                <div class="empty-state">No upcoming bookings.</div>
+            </section>
+        </main>
+    </div>
+</div>

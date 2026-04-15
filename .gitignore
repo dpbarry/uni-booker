@@ -1,3 +1,10 @@
 .idea/
 .env
+.vscode/
+.claude/
 node_modules/
+data/
+*.db
+.DS_Store
+VERSION-NEW-BACKEND/
+COMP 307 Project Winter 2026.pdf

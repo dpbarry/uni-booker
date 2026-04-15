@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <script> 
+        (() => {
+            try {
+                const t = localStorage.getItem('uni-booker-theme');
+                if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+            } catch { }
+            const h = location.hash;
+            if (sessionStorage.getItem('uni-booker-auth') !== '1' || !h || h === '#' || h === '#/' || h === '#/signin') return;
+            document.documentElement.classList.add('first-paint-main');
+        })();
+    </script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UniBooker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="css/global.css" rel="stylesheet">
+    <link href="css/auth.css" rel="stylesheet">
+    <link href="css/main.css" rel="stylesheet">
+</head>
+
+<body>
+    <div id="page-container"></div>
+    <script type="module" src="js/app.js"></script>
+</body>
+
+</html>
