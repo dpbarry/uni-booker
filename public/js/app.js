@@ -7,6 +7,7 @@ const pageContainer = document.getElementById('page-container');
 
 const state = {
   busy: false,
+  animateNextEntry: false,
   pendingPanel: null,
   activePanel: null,
   animateNextMainEntry: false,
@@ -278,8 +279,6 @@ window.toggleSlot = async (slotId) => {
     console.error('Error toggling slot:', err);
   }
 };
-
-
 
 
 const route = async () => {

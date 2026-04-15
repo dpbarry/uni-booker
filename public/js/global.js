@@ -106,7 +106,7 @@ export const progress = {
 
 export const syncThemeToggleTitles = () => {
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    document.querySelectorAll('.theme-toggle').forEach((btn) => {
+    document.querySelectorAll('.js-theme-toggle').forEach((btn) => {
         btn.setAttribute('title', isDark ? 'Light mode' : 'Dark mode');
     });
 };
