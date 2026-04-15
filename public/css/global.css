@@ -13,6 +13,7 @@
   --radius-sm: 0.375rem;
   --radius-md: 0.625rem;
   --radius-lg: 0.875rem;
+  --strip-w: 3rem;
 }
 
 :root[data-theme="light"] {
@@ -25,6 +26,8 @@
   --focus-shadow: hsl(var(--accent-h) 70% 50% / 0.2);
   --hover-bg: hsl(var(--accent-h) 72% 52% / 0.1);
   --card-shadow: 0 1px 2px hsl(220 20% 10% / 0.04);
+  --focus-shadow: hsl(var(--accent-h) 70% 50% / 0.2);
+  --hover-bg: hsl(var(--accent-h) 72% 52% / 0.1);
   --color-accent-half: color-mix(in srgb, var(--color-accent) 50%, var(--color-elevated));
 }
 
@@ -66,6 +69,7 @@ body {
 .press:active {
   transform: scale(0.97);
 }
+
 
 .icon-button {
   display: inline-flex;
@@ -181,4 +185,26 @@ body.main-entry-animation #view-app.from-signin-layer {
   to {
     opacity: 0;
   }
+}
+
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  z-index: 999;
+  background: var(--color-accent);
+  width: 0;
+  opacity: 0;
+}
+
+.progress.run {
+  width: 85%;
+  opacity: 1;
+}
+
+.progress.done {
+  width: 100%;
+  transition: width 0.15s ease-out, opacity 0.25s 0.1s;
+  opacity: 0;
 }

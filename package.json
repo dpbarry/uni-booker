@@ -1,27 +1,18 @@
 {
-  "name": "app",
+  "name": "uni-booker-main",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/dpbarry/uni-booker.git"
-  },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/dpbarry/uni-booker/issues"
-  },
-  "homepage": "https://github.com/dpbarry/uni-booker#readme",
+  "type": "commonjs",
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.9.0",
-    "dotenv": "^17.4.2",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
-    "express-session": "^1.19.0"
+    "mysql2": "^3.22.0"
   }
 }
