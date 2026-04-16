@@ -1,4 +1,5 @@
 import {
+    API_BASE,
     MAIN_PAGE_URL,
     ROLES,
     appendPage,
@@ -14,18 +15,14 @@ const UPCOMING_VIEW_KEY = 'uni-booker-upcoming-view';
 const UPCOMING_VIEWS = ['month', 'week'];
 
 const getSavedUpcomingView = () => {
-    try {
-        const v = localStorage.getItem(UPCOMING_VIEW_KEY);
-        if (v && UPCOMING_VIEWS.includes(v)) return v;
-    } catch {}
+    const v = localStorage.getItem(UPCOMING_VIEW_KEY);
+    if (v && UPCOMING_VIEWS.includes(v)) return v;
     return 'month';
 };
 
 const setSavedUpcomingView = (view) => {
     if (!UPCOMING_VIEWS.includes(view)) return;
-    try {
-        localStorage.setItem(UPCOMING_VIEW_KEY, view);
-    } catch {}
+    localStorage.setItem(UPCOMING_VIEW_KEY, view);
 };
 
 const applyUpcomingView = (view) => {
@@ -177,9 +174,7 @@ const bindAccountMenu = () => {
         const signout = e.target.closest('.account-signout');
         if (signout) {
             closeMenu();
-            try {
-                sessionStorage.setItem(signOutAnimateKey, '1');
-            } catch {}
+            sessionStorage.setItem(signOutAnimateKey, '1');
             sessionStorage.removeItem(authKey);
             clearUser();
             location.replace('#/signin');
@@ -194,9 +189,7 @@ const bindAccountMenu = () => {
     });
 };
 
-// --- Card hydration: owner slots + student available slots ---
-
-let cardActionsBound = false;
+const cardActionsBound = false;
 
 const bindCardActions = () => {
     if (cardActionsBound) return;
@@ -224,7 +217,7 @@ const bindCardActions = () => {
         if (toggleBtn) {
             const id = Number(toggleBtn.dataset.id);
             try {
-                const response = await fetch(`http://localhost:3000/slots/${id}/toggle`, {
+                const response = await fetch(`${API_BASE}/slots/${id}/toggle`, {
                     method: 'PUT',
                 });
                 const data = await response.json();
@@ -245,7 +238,7 @@ const bindCardActions = () => {
             const id = Number(deleteBtn.dataset.id);
             if (!confirm('Delete this slot?')) return;
             try {
-                const response = await fetch(`http://localhost:3000/slots/${id}`, {
+                const response = await fetch(`${API_BASE}/slots/${id}`, {
                     method: 'DELETE',
                 });
                 const data = await response.json();
@@ -270,7 +263,7 @@ const bindCardActions = () => {
             }
             const id = Number(bookBtn.dataset.id);
             try {
-                const response = await fetch('http://localhost:3000/bookings', {
+                const response = await fetch(`${API_BASE}/bookings`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ student_id: user.id, slot_id: id }),
@@ -301,7 +294,7 @@ const bindCardActions = () => {
         const time = data.get('time');
         if (!date || !time) return;
         try {
-            const response = await fetch('http://localhost:3000/slots/create', {
+            const response = await fetch(`${API_BASE}/slots/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ owner_id: user.id, date, time: `${time}:00` }),
@@ -341,7 +334,7 @@ const renderOwnerSlots = async () => {
 
     let slots = [];
     try {
-        const response = await fetch(`http://localhost:3000/slots/owner/${user.id}`);
+        const response = await fetch(`${API_BASE}/slots/owner/${user.id}`);
         slots = await response.json();
         if (!response.ok) throw new Error(slots?.error || 'Failed to load slots');
     } catch (err) {
@@ -378,7 +371,7 @@ const renderActiveSlots = async () => {
 
     let slots = [];
     try {
-        const response = await fetch('http://localhost:3000/slots/active');
+        const response = await fetch(`${API_BASE}/slots/active`);
         slots = await response.json();
         if (!response.ok) throw new Error(slots?.error || 'Failed to load slots');
     } catch (err) {

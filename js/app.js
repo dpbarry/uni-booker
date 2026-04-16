@@ -54,11 +54,8 @@ const route = async () => {
     }
     state.busy = true;
     try {
-      let animateReturn = false;
-      try {
-        animateReturn = sessionStorage.getItem(signOutAnimateKey) === '1';
-        if (animateReturn) sessionStorage.removeItem(signOutAnimateKey);
-      } catch {}
+      let animateReturn = sessionStorage.getItem(signOutAnimateKey) === '1';
+      if (animateReturn) sessionStorage.removeItem(signOutAnimateKey);
 
       await ensureAuthPage(pageContainer, onSignIn, { append: animateReturn });
 

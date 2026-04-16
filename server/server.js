@@ -1,152 +1,91 @@
 const express = require('express');
-const app = express();
+const path = require('path');
 const db = require('./db');
-const cors = require('cors');
-app.use(cors());
 
+const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, '..')));
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 app.post('/login', (req, res) => {
-  const { email } = req.body;
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-  if (!email) {
-    return res.status(400).json({ error: 'Email requerido' });
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.password !== password) return res.status(401).json({ error: 'Incorrect password' });
+
+  const { password: _, ...safe } = user;
+  res.json(safe);
+});
+
+app.post('/register', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'All fields required' });
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Invalid email format' });
+
+  const lEmail = email.toLowerCase();
+  if (!lEmail.endsWith('@mcgill.ca') && !lEmail.endsWith('@mail.mcgill.ca')) {
+    return res.status(400).json({ error: 'Use McGill email' });
   }
 
-  const query = 'SELECT * FROM users WHERE email = ?';
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  if (existing) return res.status(409).json({ error: 'Email already registered' });
 
-  db.query(query, [email], (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al buscar usuario' });
-    }
+  const role = email.toLowerCase().endsWith('@mcgill.ca') && !email.toLowerCase().endsWith('@mail.mcgill.ca')
+    ? 'owner'
+    : 'student';
 
-    if (results.length === 0) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    res.json(results[0]);
-  });
+  const result = db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run(email, password, role);
+  res.json({ id: result.lastInsertRowid, email, role });
 });
 
-app.post('/bookings', (req, res) => {
-  const { student_id, slot_id } = req.body;
+app.post('/slots/create', (req, res) => {
+  const { owner_id, date, time, type, invite_token } = req.body;
+  if (!owner_id || !date || !time) return res.status(400).json({ error: 'Missing fields' });
 
-  const query = `
-    INSERT INTO bookings (student_id, slot_id)
-    VALUES (?, ?)
-  `;
+  const result = db.prepare(
+    'INSERT INTO slots (owner_id, date, time, type, active, invite_token) VALUES (?, ?, ?, ?, 1, ?)'
+  ).run(owner_id, date, time, type ?? 'office_hours', invite_token ?? null);
 
-  db.query(query, [student_id, slot_id], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error creating booking' });
-    }
-
-    res.json({ message: 'Booking created' });
-  });
+  res.json({ id: result.lastInsertRowid });
 });
 
-app.get('/slots/owner/:ownerId', (req, res) => {
-  const { ownerId } = req.params;
-
-  const query = 'SELECT * FROM slots WHERE owner_id = ?';
-
-  db.query(query, [ownerId], (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al obtener slots del owner' });
-    }
-
-    res.json(results);
-  });
+app.get('/slots', (req, res) => {
+  res.json(db.prepare('SELECT * FROM slots').all());
 });
 
 app.get('/slots/active', (req, res) => {
-  const query = 'SELECT * FROM slots WHERE active = 1';
+  res.json(db.prepare('SELECT * FROM slots WHERE active = 1').all());
+});
 
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al obtener slots activos' });
-    }
-
-    res.json(results);
-  });
+app.get('/slots/owner/:ownerId', (req, res) => {
+  res.json(db.prepare('SELECT * FROM slots WHERE owner_id = ?').all(req.params.ownerId));
 });
 
 app.put('/slots/:id/toggle', (req, res) => {
-  const { id } = req.params;
-
-  const query = 'UPDATE slots SET active = NOT active WHERE id = ?';
-
-  db.query(query, [id], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al actualizar' });
-    }
-
-    res.json({
-      message: 'Slot actualizado 🔄'
-    });
-  });
+  db.prepare('UPDATE slots SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Slot toggled' });
 });
 
-// DELETE
 app.delete('/slots/:id', (req, res) => {
-  const { id } = req.params;
-
-  const query = 'DELETE FROM slots WHERE id = ?';
-
-  db.query(query, [id], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al eliminar' });
-    }
-
-    res.json({
-      message: 'Slot eliminado 🗑️'
-    });
-  });
+  db.prepare('DELETE FROM slots WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Slot deleted' });
 });
 
-// 👉 GET slots (ponlo aquí)
-app.get('/slots', (req, res) => {
-  const query = 'SELECT * FROM slots';
-
-  db.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al obtener slots' });
-    }
-
-    res.json(results);
-  });
+app.post('/bookings', (req, res) => {
+  const { student_id, slot_id, message } = req.body;
+  const result = db.prepare('INSERT INTO bookings (student_id, slot_id, message) VALUES (?, ?, ?)').run(student_id, slot_id, message ?? null);
+  res.json({ id: result.lastInsertRowid });
 });
 
-// 👉 POST create
-app.post('/slots/create', (req, res) => {
-  const { owner_id, date, time } = req.body;
-
-  if (!owner_id || !date || !time) {
-    return res.status(400).json({ error: 'Faltan datos' });
-  }
-
-  const query = 'INSERT INTO slots (owner_id, date, time, active) VALUES (?, ?, ?, 1)';
-
-  db.query(query, [owner_id, date, time], (err, result) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al guardar slot' });
-    }
-
-    res.json({
-      message: 'Slot guardado con owner',
-      id: result.insertId
-    });
-  });
+app.get('/bookings/slot/:slotId', (req, res) => {
+  res.json(db.prepare('SELECT * FROM bookings WHERE slot_id = ?').all(req.params.slotId));
 });
 
-app.listen(3000, () => {
-  console.log('Servidor corriendo en http://localhost:3000');
+app.get('/bookings/student/:studentId', (req, res) => {
+  res.json(db.prepare('SELECT * FROM bookings WHERE student_id = ?').all(req.params.studentId));
 });
+
+app.listen(3000, () => console.log('Server running on http://localhost:3000'));

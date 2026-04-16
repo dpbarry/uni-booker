@@ -1,3 +1,5 @@
+export const API_BASE = '';
+
 export const entryMs = 125;
 
 export const authKey = 'uni-booker-auth';
@@ -6,7 +8,7 @@ export const signOutAnimateKey = 'uni-booker-signout-animate';
 export const themeKey = 'uni-booker-theme';
 
 export const ROLES = {
-    owner:   { label: 'Owner',   initial: 'O' },
+    owner: { label: 'Owner', initial: 'O' },
     student: { label: 'Student', initial: 'S' },
 };
 
@@ -22,15 +24,11 @@ export const getUser = () => {
 };
 
 export const setUser = (user) => {
-    try {
-        sessionStorage.setItem(userKey, JSON.stringify(user));
-    } catch {}
+    sessionStorage.setItem(userKey, JSON.stringify(user));
 };
 
 export const clearUser = () => {
-    try {
-        sessionStorage.removeItem(userKey);
-    } catch {}
+    sessionStorage.removeItem(userKey);
 };
 
 export const APP_TITLE = 'UniBooker';
@@ -72,9 +70,7 @@ export const initTheme = () => {
         const nextTheme =
             document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         document.documentElement.setAttribute('data-theme', nextTheme);
-        try {
-            localStorage.setItem(themeKey, nextTheme);
-        } catch {}
+        localStorage.setItem(themeKey, nextTheme);
         syncThemeToggleTitles();
     });
     syncThemeToggleTitles();
