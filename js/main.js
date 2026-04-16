@@ -4,8 +4,11 @@ import {
     ROLES,
     appendPage,
     authKey,
+    userKey,
     clearUser,
     getUser,
+    getAllUsers,
+    setUser,
     loadPage,
     signOutAnimateKey,
     syncThemeToggleTitles,
@@ -129,13 +132,56 @@ const applyUserToUI = (user) => {
     const initial = (user?.email?.[0] || meta.initial).toUpperCase();
     const avatarInitial = appView.querySelector('.avatar-initial');
     if (avatarInitial) avatarInitial.textContent = initial;
-    const accountAvatarInitial = appView.querySelector('.account-avatar-initial');
-    if (accountAvatarInitial) accountAvatarInitial.textContent = initial;
 
-    const emailEl = appView.querySelector('.account-email');
-    if (emailEl) emailEl.textContent = user?.email || 'Not signed in';
-    const roleEl = appView.querySelector('.account-identity .account-role');
-    if (roleEl) roleEl.textContent = meta.label;
+    const menu = appView.querySelector('.account-menu');
+    if (!menu) return;
+
+    const allUsers = getAllUsers();
+    let html = '';
+
+    if (user) {
+        html += `
+            <div class="account-row account-identity" role="presentation" aria-checked="true">
+                <span class="account-avatar"><span class="account-avatar-initial">${initial}</span></span>
+                <span class="account-meta">
+                    <span class="account-name account-email">${user.email}</span>
+                    <span class="account-role">${meta.label}</span>
+                </span>
+            </div>
+        `;
+    }
+
+    const otherUsers = allUsers.filter(u => u.email !== user?.email);
+    if (otherUsers.length > 0) {
+        html += `<div class="account-divider"></div>`;
+        otherUsers.forEach(u => {
+            const uInitial = u.email[0].toUpperCase();
+            const uMeta = ROLES[u.role] || ROLES.student;
+            html += `
+                <button type="button" class="account-row account-switch" data-email="${u.email}" role="menuitem">
+                    <span class="account-avatar"><span class="account-avatar-initial">${uInitial}</span></span>
+                    <span class="account-meta">
+                        <span class="account-name">${u.email}</span>
+                        <span class="account-role">${uMeta.label}</span>
+                    </span>
+                </button>
+            `;
+        });
+    }
+
+    html += `
+        <div class="account-divider"></div>
+        <button type="button" class="account-row account-add" role="menuitem">
+            <svg class="account-signout-icon" width="16" height="16" viewBox="0 0 24 24"><use href="assets/icons.svg#plus" /></svg>
+            <span class="account-name">Add account</span>
+        </button>
+        <button type="button" class="account-row account-signout" role="menuitem">
+            <svg class="account-signout-icon" width="16" height="16" viewBox="0 0 24 24"><use href="assets/icons.svg#log-out" /></svg>
+            <span class="account-name">Sign out</span>
+        </button>
+    `;
+
+    menu.innerHTML = html;
 };
 
 let accountMenuBound = false;
@@ -171,13 +217,37 @@ const bindAccountMenu = () => {
             return;
         }
 
+        const addAcc = e.target.closest('.account-add');
+        if (addAcc) {
+            closeMenu();
+            sessionStorage.removeItem(authKey);
+            sessionStorage.removeItem(userKey);
+            location.replace('#/signin');
+            return;
+        }
+
+        const switchAcc = e.target.closest('.account-switch');
+        if (switchAcc) {
+            const email = switchAcc.dataset.email;
+            const targetUser = getAllUsers().find(u => u.email === email);
+            if (targetUser) {
+                closeMenu();
+                setUser(targetUser);
+                location.reload();
+            }
+            return;
+        }
+
         const signout = e.target.closest('.account-signout');
         if (signout) {
             closeMenu();
             sessionStorage.setItem(signOutAnimateKey, '1');
-            sessionStorage.removeItem(authKey);
             clearUser();
-            location.replace('#/signin');
+            if (sessionStorage.getItem(authKey)) {
+                location.reload();
+            } else {
+                location.replace('#/signin');
+            }
             return;
         }
 
@@ -189,7 +259,7 @@ const bindAccountMenu = () => {
     });
 };
 
-const cardActionsBound = false;
+let cardActionsBound = false;
 
 const bindCardActions = () => {
     if (cardActionsBound) return;

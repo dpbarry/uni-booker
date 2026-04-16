@@ -4,6 +4,7 @@ export const entryMs = 125;
 
 export const authKey = 'uni-booker-auth';
 export const userKey = 'uni-booker-user';
+export const usersKey = 'uni-booker-users';
 export const signOutAnimateKey = 'uni-booker-signout-animate';
 export const themeKey = 'uni-booker-theme';
 
@@ -25,10 +26,33 @@ export const getUser = () => {
 
 export const setUser = (user) => {
     sessionStorage.setItem(userKey, JSON.stringify(user));
+    let users = [];
+    try { users = JSON.parse(sessionStorage.getItem(usersKey)) || []; } catch {}
+    users = users.filter(u => u.email !== user.email);
+    users.push(user);
+    sessionStorage.setItem(usersKey, JSON.stringify(users));
+};
+
+export const getAllUsers = () => {
+    try {
+        return JSON.parse(sessionStorage.getItem(usersKey)) || [];
+    } catch {
+        return [];
+    }
 };
 
 export const clearUser = () => {
+    const active = getUser();
     sessionStorage.removeItem(userKey);
+    if (!active) return;
+    
+    let users = getAllUsers().filter(u => u.email !== active.email);
+    sessionStorage.setItem(usersKey, JSON.stringify(users));
+    if (users.length > 0) {
+        sessionStorage.setItem(userKey, JSON.stringify(users[users.length - 1]));
+    } else {
+        sessionStorage.removeItem(authKey);
+    }
 };
 
 export const APP_TITLE = 'UniBooker';

@@ -29,9 +29,9 @@ db.exec(`
 
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
 if (userCount === 0) {
-  db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run('prof@mcgill.ca', 'pass123', 'owner');
-  db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run('student@mcgill.ca', 'pass123', 'student');
-  console.log('Seed users created: prof@mcgill.ca, student@mcgill.ca (password: pass123)');
+  db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run('prof@mcgill.ca', '123', 'owner');
+  db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run('student@mail.mcgill.ca', '123', 'student');
+  console.log('Seed users created: prof@mcgill.ca, student@mail.mcgill.ca (password: 123)');
 }
 
 module.exports = db;

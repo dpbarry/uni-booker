@@ -290,13 +290,14 @@
   color: var(--color-base);
 }
 
-.account-identity {
+.account-row.account-identity {
   cursor: default;
+  background: var(--active-bg);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .account-identity:hover {
-    background: transparent;
+  .account-row.account-identity:hover {
+    background: var(--active-bg);
   }
 }
 
@@ -313,13 +314,11 @@
   margin-left: 0.3rem;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    hsl(354 85% 48%) 0%,
-    hsl(354 90% 58%) 30%,
-    hsl(0 80% 65%) 55%,
-    hsl(0 85% 65%) 100%
-  );
+  background: linear-gradient(135deg,
+      hsl(354 85% 48%) 0%,
+      hsl(354 90% 58%) 30%,
+      hsl(0 80% 65%) 55%,
+      hsl(0 85% 65%) 100%);
   color: white;
   font-family: var(--main-font), sans-serif;
   font-weight: 700;
@@ -361,8 +360,15 @@
 }
 
 @keyframes menu-pop {
-  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .account-row {
@@ -400,13 +406,11 @@
   width: 1.85rem;
   height: 1.85rem;
   border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    hsl(354 85% 48%) 0%,
-    hsl(354 90% 58%) 30%,
-    hsl(0 80% 65%) 55%,
-    hsl(0 85% 65%) 100%
-  );
+  background: linear-gradient(135deg,
+      hsl(354 85% 48%) 0%,
+      hsl(354 90% 58%) 30%,
+      hsl(0 80% 65%) 55%,
+      hsl(0 85% 65%) 100%);
   color: white;
   font-weight: 700;
   font-size: 0.78rem;
@@ -432,15 +436,6 @@
   margin-top: 0.1rem;
 }
 
-.account-check {
-  color: var(--color-accent);
-  flex-shrink: 0;
-  opacity: 0;
-}
-
-.account-row[aria-checked="true"] .account-check {
-  opacity: 1;
-}
 
 .account-divider {
   height: 1px;

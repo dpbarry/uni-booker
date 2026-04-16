@@ -35,6 +35,7 @@
   --color-border-strong: hsl(220 13% 78%);
   --focus-shadow: hsl(var(--accent-h) 70% 50% / 0.2);
   --hover-bg: hsl(var(--accent-h) 72% 52% / 0.1);
+  --active-bg: hsl(var(--accent-h) 72% 52% / 0.16);
   --card-shadow: 0 4px 20px hsl(220 20% 10% / 0), 0 0 2px hsl(220 20% 10% / 0.04);
   --card-shadow-hover: 0 4px 20px hsl(220 20% 10% / 0.05), 0 0 2px hsl(220 20% 10% / 0.04);
   --card-border-hover: hsl(var(--accent-h) 55% 52% / 0.28);
@@ -52,6 +53,7 @@
   --color-border-strong: hsl(220 12% 22%);
   --focus-shadow: hsl(var(--accent-h) 65% 48% / 0.38);
   --hover-bg: hsl(var(--accent-h) 100% 80% / 0.1);
+  --active-bg: hsl(var(--accent-h) 100% 80% / 0.16);
   --card-shadow: 0 4px 20px hsl(0 0% 0% / 0), 0 0 2px hsl(0 0% 0% / 0.3);
   --card-shadow-hover: 0 4px 20px hsl(0 0% 0% / 0.5), 0 0 2px hsl(0 0% 0% / 0.5);
   --card-border-hover: hsl(var(--accent-h) 25% 20%);
