@@ -3,8 +3,8 @@ const path = require('path');
 const db = require('./db');
 
 const app = express();
-app.use(express.json());
 app.use(express.static(path.join(__dirname, '..')));
+app.use(express.json());
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -88,4 +88,9 @@ app.get('/bookings/student/:studentId', (req, res) => {
   res.json(db.prepare('SELECT * FROM bookings WHERE student_id = ?').all(req.params.studentId));
 });
 
-app.listen(3000, () => console.log('Server running on http://localhost:3000'));
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
+});
