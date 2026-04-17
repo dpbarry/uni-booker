@@ -14,6 +14,7 @@ import {
 } from './global.js';
 import { registerDialog, requestDialogClose } from './dialog.js';
 import { mountUpcoming, refreshUpcoming, setUpcomingView } from './upcoming.js';
+import { rehydrateBookingViews } from './invite-booking.js';
 import { showToast } from './toast.js';
 import { escapeHtml, initialFromEmail } from './format.js';
 import { handleSlotManagerClick, handleSlotManagerSubmit, refreshOwnerSlots } from './slot-manager.js';
@@ -21,6 +22,7 @@ import { handleBookingManagerClick, refreshDiscoverProfs, refreshPinnedProfs } f
 
 const UPCOMING_VIEW_KEY = 'uni-booker-upcoming-view';
 const UPCOMING_VIEWS = ['month', 'week'];
+const REHYDRATE_MS = 5000;
 const normalizeUpcomingView = (view) => (UPCOMING_VIEWS.includes(view) ? view : 'month');
 
 const getSavedUpcomingView = () => {
@@ -29,6 +31,41 @@ const getSavedUpcomingView = () => {
 
 const setSavedUpcomingView = (view) => {
     localStorage.setItem(UPCOMING_VIEW_KEY, normalizeUpcomingView(view));
+};
+
+let rehydrateTimer = null;
+let rehydrateInFlight = false;
+
+const rehydrateDbData = async () => {
+    const user = getUser();
+    if (!user) return;
+    if (rehydrateInFlight) return;
+    rehydrateInFlight = true;
+    try {
+        await apiFetch('/maintenance/cleanup-expired', { method: 'POST' });
+        const jobs = [refreshUpcoming(), rehydrateBookingViews()];
+        if (user.role === 'owner') {
+            jobs.push(refreshOwnerSlots());
+            await Promise.all(jobs);
+            return;
+        }
+        if (user.role === 'student') {
+            const pinnedIds = await refreshPinnedProfs();
+            jobs.push(refreshDiscoverProfs(pinnedIds));
+        }
+        await Promise.all(jobs);
+    } catch (err) {
+        console.error('Rehydrate failed:', err);
+    } finally {
+        rehydrateInFlight = false;
+    }
+};
+
+const startRehydrateLoop = () => {
+    if (rehydrateTimer) return;
+    rehydrateTimer = setInterval(() => {
+        void rehydrateDbData();
+    }, REHYDRATE_MS);
 };
 
 const applyUpcomingView = (view) => {
@@ -121,6 +158,7 @@ export const ensureMainPage = async (pageContainer, { append = false } = {}) => 
     bindViewSwitcher();
     bindAppActions();
     bindDialogClose();
+    startRehydrateLoop();
     void refreshCards(user);
 };
 
@@ -323,10 +361,7 @@ const bindAppActions = () => {
     });
 
     window.addEventListener('booking-changed', async () => {
-        const user = getUser();
-        if (!user) return;
-        if (user.role === 'owner') await refreshOwnerSlots();
-        await refreshUpcoming();
+        await rehydrateDbData();
     });
 };
 

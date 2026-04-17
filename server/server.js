@@ -9,8 +9,6 @@ app.use(express.static(path.join(__dirname, '..')));
 app.use(express.json());
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const EXPIRED_CLEANUP_MS = 30_000;
-let lastExpiredCleanupAt = 0;
 
 const nowIso = () => new Date().toISOString();
 const isPast = (date, time) => {
@@ -20,29 +18,16 @@ const isPast = (date, time) => {
 const expiredSlotWhere = "datetime(date || ' ' || substr(time, 1, 5)) < datetime('now', 'localtime')";
 
 const cleanupExpired = db.transaction(() => {
-  db.prepare(`
+  const bookingsDeleted = db.prepare(`
     DELETE FROM bookings
     WHERE slot_id IN (
       SELECT id
       FROM slots
       WHERE ${expiredSlotWhere}
     )
-  `).run();
-  db.prepare(`DELETE FROM slots WHERE ${expiredSlotWhere}`).run();
-});
-
-const maybeCleanupExpired = (force = false) => {
-  const now = Date.now();
-  if (!force && now - lastExpiredCleanupAt < EXPIRED_CLEANUP_MS) return;
-  cleanupExpired();
-  lastExpiredCleanupAt = now;
-};
-
-app.use((req, _res, next) => {
-  if (/^\/(owners|invite|slots|bookings|pins|upcoming)(\/|$)/.test(req.path)) {
-    maybeCleanupExpired();
-  }
-  next();
+  `).run().changes;
+  const slotsDeleted = db.prepare(`DELETE FROM slots WHERE ${expiredSlotWhere}`).run().changes;
+  return { bookingsDeleted, slotsDeleted };
 });
 
 app.post('/login', (req, res) => {
@@ -346,10 +331,12 @@ app.get('/upcoming/:userId', (req, res) => {
   res.json(rows);
 });
 
+app.post('/maintenance/cleanup-expired', (_req, res) => {
+  res.json(cleanupExpired());
+});
+
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || 'localhost';
-
-maybeCleanupExpired(true);
 
 app.listen(PORT, HOST, () => {
   console.log(`Server running on http://${HOST}:${PORT}`);

@@ -108,6 +108,7 @@ const setError = (container, message) => {
 
 const boundHosts = new WeakSet();
 const hostContext = new WeakMap();
+const activeViewStates = new Map();
 
 const bindInteractions = (host, mode, state) => {
     hostContext.set(host, { mode, state });
@@ -226,6 +227,7 @@ export const openBookingDialog = async ({ ownerId, token, mode = 'modal' } = {})
 
     const host = mode === 'page' ? container.parentElement : container;
     const state = { token: resolved, container };
+    activeViewStates.set(mode, state);
     bindInteractions(host, mode, state);
     await refreshBookingView(mode, state);
 
@@ -236,4 +238,16 @@ export const openBookingDialog = async ({ ownerId, token, mode = 'modal' } = {})
 
     bindHashDismiss();
     maybeShowViewOnlyToast();
+};
+
+export const rehydrateBookingViews = async () => {
+    const jobs = [];
+    activeViewStates.forEach((state, mode) => {
+        if (!state?.container || !document.body.contains(state.container)) {
+            activeViewStates.delete(mode);
+            return;
+        }
+        jobs.push(refreshBookingView(mode, state));
+    });
+    await Promise.all(jobs);
 };
