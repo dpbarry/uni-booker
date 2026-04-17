@@ -181,9 +181,11 @@
   transition: background 120ms var(--ease), color 120ms var(--ease);
 }
 
-.cal-nav-btn:hover {
-  background: var(--hover-bg);
-  color: var(--color-base);
+@media (hover: hover) and (pointer: fine) {
+  .cal-nav-btn.is-hovered {
+    background: var(--hover-bg);
+    color: var(--color-base);
+  }
 }
 
 .cal-dow {

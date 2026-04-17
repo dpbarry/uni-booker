@@ -16,6 +16,9 @@ const addDays = (d, n) => {
 const startOfWeek = (d) => addDays(d, -d.getDay());
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear()
     && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const clearNavHover = (root) => { // needed for some reason... otherwise glitches
+    root.querySelectorAll('.cal-nav-btn.is-hovered').forEach((btn) => btn.classList.remove('is-hovered'));
+};
 
  // VISUALIZER, PICKER, OR RANGE
 export const createCalendar = (el, opts = {}) => {
@@ -110,6 +113,15 @@ export const createCalendar = (el, opts = {}) => {
     };
 
     el.classList.add('cal');
+    el.classList.toggle('cal-mode-picker', state.mode === 'picker');
+    el.classList.toggle('cal-mode-range', state.mode === 'range');
+    el.classList.toggle('cal-mode-visualizer', state.mode === 'visualizer');
+    el.addEventListener('pointermove', (e) => {
+        const btn = e.target.closest('.cal-nav-btn');
+        clearNavHover(el);
+        if (btn && el.contains(btn)) btn.classList.add('is-hovered');
+    });
+    el.addEventListener('pointerleave', () => clearNavHover(el));
     el.addEventListener('click', (e) => {
         const nav = e.target.closest('[data-nav]');
         if (nav) {
@@ -155,6 +167,9 @@ export const createCalendar = (el, opts = {}) => {
         setSelected: (s) => { state.selected = s; render(); },
         setRange: (r) => { state.range = r; state.pendingStart = null; render(); },
         goto: (dateStr) => { state.cursor = parseYmd(dateStr); render(); },
-        destroy: () => { el.innerHTML = ''; el.classList.remove('cal'); },
+        destroy: () => {
+            el.innerHTML = '';
+            el.classList.remove('cal', 'cal-mode-picker', 'cal-mode-range', 'cal-mode-visualizer');
+        },
     };
 };
