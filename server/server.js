@@ -9,19 +9,41 @@ app.use(express.static(path.join(__dirname, '..')));
 app.use(express.json());
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EXPIRED_CLEANUP_MS = 30_000;
+let lastExpiredCleanupAt = 0;
 
 const nowIso = () => new Date().toISOString();
-const todayYmd = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
 const isPast = (date, time) => {
   const when = new Date(`${date}T${time}`);
   return Number.isNaN(when.getTime()) || when.getTime() < Date.now();
 };
+const expiredSlotWhere = "datetime(date || ' ' || substr(time, 1, 5)) < datetime('now', 'localtime')";
+
+const cleanupExpired = db.transaction(() => {
+  db.prepare(`
+    DELETE FROM bookings
+    WHERE slot_id IN (
+      SELECT id
+      FROM slots
+      WHERE ${expiredSlotWhere}
+    )
+  `).run();
+  db.prepare(`DELETE FROM slots WHERE ${expiredSlotWhere}`).run();
+});
+
+const maybeCleanupExpired = (force = false) => {
+  const now = Date.now();
+  if (!force && now - lastExpiredCleanupAt < EXPIRED_CLEANUP_MS) return;
+  cleanupExpired();
+  lastExpiredCleanupAt = now;
+};
+
+app.use((req, _res, next) => {
+  if (/^\/(owners|invite|slots|bookings|pins|upcoming)(\/|$)/.test(req.path)) {
+    maybeCleanupExpired();
+  }
+  next();
+});
 
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
@@ -62,7 +84,13 @@ app.get('/owners', (_req, res) => {
       SELECT id, email
       FROM users
       WHERE role = 'owner'
-        AND EXISTS (SELECT 1 FROM slots s WHERE s.owner_id = users.id AND s.active = 1)
+        AND EXISTS (
+          SELECT 1
+          FROM slots s
+          WHERE s.owner_id = users.id
+            AND s.active = 1
+            AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
+        )
       ORDER BY email
     `).all(),
   );
@@ -87,9 +115,11 @@ app.get('/invite/:token', (req, res) => {
            b.id AS booking_id, b.student_id AS booker_id
     FROM slots s
     LEFT JOIN bookings b ON b.slot_id = s.id
-    WHERE s.owner_id = ? AND s.active = 1 AND s.date >= ?
+    WHERE s.owner_id = ?
+      AND s.active = 1
+      AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
     ORDER BY s.date ASC, s.time ASC
-  `).all(owner.id, todayYmd());
+  `).all(owner.id);
   res.json({ owner, slots });
 });
 
@@ -110,7 +140,14 @@ app.get('/slots', (_req, res) => {
 });
 
 app.get('/slots/active', (_req, res) => {
-  res.json(db.prepare('SELECT * FROM slots WHERE active = 1').all());
+  res.json(
+    db.prepare(`
+      SELECT *
+      FROM slots
+      WHERE active = 1
+        AND datetime(date || ' ' || substr(time, 1, 5)) >= datetime('now', 'localtime')
+    `).all(),
+  );
 });
 
 app.get('/slots/owner/:ownerId', (req, res) => {
@@ -123,6 +160,7 @@ app.get('/slots/owner/:ownerId', (req, res) => {
       LEFT JOIN bookings b ON b.slot_id = s.id
       LEFT JOIN users u ON u.id = b.student_id
       WHERE s.owner_id = ?
+        AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
       ORDER BY s.date ASC, s.time ASC
     `).all(req.params.ownerId),
   );
@@ -292,7 +330,6 @@ app.delete('/pins/:studentId/:ownerId', (req, res) => {
 });
 
 app.get('/upcoming/:userId', (req, res) => {
-  const today = todayYmd();
   const rows = db.prepare(`
     SELECT b.id AS booking_id, s.id AS slot_id, s.date, s.time,
            CASE WHEN s.owner_id = ? THEN 'owner' ELSE 'booker' END AS role,
@@ -303,14 +340,16 @@ app.get('/upcoming/:userId', (req, res) => {
     JOIN users student ON student.id = b.student_id
     WHERE (s.owner_id = ? OR b.student_id = ?)
       AND s.active = 1
-      AND s.date >= ?
+      AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
     ORDER BY s.date ASC, s.time ASC
-  `).all(req.params.userId, req.params.userId, req.params.userId, req.params.userId, today);
+  `).all(req.params.userId, req.params.userId, req.params.userId, req.params.userId);
   res.json(rows);
 });
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || 'localhost';
+
+maybeCleanupExpired(true);
 
 app.listen(PORT, HOST, () => {
   console.log(`Server running on http://${HOST}:${PORT}`);

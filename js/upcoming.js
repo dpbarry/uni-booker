@@ -3,6 +3,7 @@ import { createCalendar } from './calendar.js';
 import { escapeHtml, formatClockTime, formatShortDate } from './format.js';
 
 let calendar = null;
+let calendarHost = null;
 let currentView = 'month';
 
 const renderList = (rows) => {
@@ -53,7 +54,13 @@ const highlightRow = (bookingId) => {
 };
 
 const ensureCalendar = (el) => {
-    if (calendar || !el) return calendar;
+    if (!el) return calendar;
+    if (calendar && calendarHost === el && document.body.contains(el)) return calendar;
+    if (calendar) {
+        calendar.destroy();
+        calendar = null;
+        calendarHost = null;
+    }
     calendar = createCalendar(el, {
         mode: 'visualizer',
         view: currentView,
@@ -61,6 +68,7 @@ const ensureCalendar = (el) => {
             if (events[0]) highlightRow(events[0].id);
         },
     });
+    calendarHost = el;
     return calendar;
 };
 
@@ -95,4 +103,5 @@ export const mountUpcoming = async (view) => {
 export const destroyUpcoming = () => {
     calendar?.destroy();
     calendar = null;
+    calendarHost = null;
 };
