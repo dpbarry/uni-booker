@@ -1,6 +1,7 @@
-import { APP_TITLE, authKey, entryMs, initTheme, signOutAnimateKey } from './global.js';
+import { APP_TITLE, authKey, entryMs, initTheme, pendingInviteKey, signOutAnimateKey } from './global.js';
 import { ensureAuthPage } from './auth.js';
 import { ensureMainPage, getAppView } from './main.js';
+import { openBookingDialog } from './invite-booking.js';
 
 const pageContainer = document.getElementById('page-container');
 
@@ -10,12 +11,29 @@ const state = {
 };
 
 const isAuthed = () => sessionStorage.getItem(authKey) === '1';
+const setHash = (hash) => location.replace(hash);
 
-// auth.js sets sessionStorage[authKey] + the user object on a successful login.
-// This callback only handles post-login navigation/animation.
+const parseInviteToken = (hash) => {
+  const m = /^#\/invite\/(.+)$/.exec(hash || '');
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
 const onSignIn = () => {
   state.animateNextEntry = true;
-  location.replace('#/');
+  const pending = sessionStorage.getItem(pendingInviteKey);
+  if (pending) {
+    sessionStorage.removeItem(pendingInviteKey);
+    setHash(`#/invite/${pending}`);
+    return;
+  }
+  setHash('#/');
+};
+
+const showTopPage = (which) => {
+  const app = document.getElementById('view-app');
+  const invite = document.getElementById('view-invite');
+  if (app) app.hidden = which !== 'app';
+  if (invite) invite.hidden = which !== 'invite';
 };
 
 async function enterMainPage() {
@@ -26,6 +44,7 @@ async function enterMainPage() {
   try {
     await ensureMainPage(pageContainer, { append: animate });
     const appView = getAppView();
+    showTopPage('app');
 
     if (animate) {
       appView.classList.add('from-signin-layer');
@@ -43,13 +62,36 @@ async function enterMainPage() {
   }
 }
 
+async function enterInvitePage(token) {
+  state.busy = true;
+  state.animateNextEntry = false;
+  try {
+    await ensureMainPage(pageContainer);
+    showTopPage('invite');
+    const inviteView = document.getElementById('view-invite');
+    if (inviteView) inviteView.classList.add('is-visible');
+    document.documentElement.classList.remove('first-paint-main');
+    document.getElementById('view-auth')?.remove();
+    await openBookingDialog({ token, mode: 'page' });
+  } finally {
+    state.busy = false;
+  }
+}
+
 const route = async () => {
   document.title = APP_TITLE;
   if (state.busy) return;
 
+  const inviteToken = parseInviteToken(location.hash);
+
   if (!isAuthed()) {
+    if (inviteToken) {
+      sessionStorage.setItem(pendingInviteKey, inviteToken);
+      setHash('#/signin');
+      return;
+    }
     if (location.hash !== '#/signin') {
-      location.replace('#/signin');
+      setHash('#/signin');
       return;
     }
     state.busy = true;
@@ -80,14 +122,21 @@ const route = async () => {
     return;
   }
 
+  if (inviteToken) {
+    await enterInvitePage(inviteToken);
+    return;
+  }
+
   if (location.hash && location.hash !== '#/') {
-    location.replace('#/');
+    setHash('#/');
     return;
   }
 
   const appView = document.getElementById('view-app');
   if (!appView || !appView.classList.contains('is-visible')) {
     await enterMainPage();
+  } else {
+    showTopPage('app');
   }
 };
 
@@ -109,9 +158,5 @@ window.addEventListener('hashchange', runRoute);
     failHard(error);
     return;
   }
-
-  const hash = location.hash;
-  if (isAuthed() && hash !== '#/') location.replace('#/');
-  else if (!isAuthed() && hash !== '#/signin') location.replace('#/signin');
-  else await route();
+  await route();
 })();

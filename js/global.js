@@ -7,6 +7,29 @@ export const userKey = 'uni-booker-user';
 export const usersKey = 'uni-booker-users';
 export const signOutAnimateKey = 'uni-booker-signout-animate';
 export const themeKey = 'uni-booker-theme';
+export const pendingInviteKey = 'uni-booker-pending-invite';
+
+export class ApiError extends Error {
+    constructor(message, status) {
+        super(message);
+        this.status = status;
+    }
+}
+
+export const apiFetch = async (path, { method = 'GET', body, headers } = {}) => {
+    const init = { method, headers: { ...(headers || {}) } };
+    if (body !== undefined) {
+        init.headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(body);
+    }
+    const res = await fetch(`${API_BASE}${path}`, init);
+    const ct = res.headers.get('content-type') || '';
+    const data = ct.includes('application/json') ? await res.json().catch(() => null) : null;
+    if (!res.ok) {
+        throw new ApiError(data?.error || `Request failed (${res.status})`, res.status);
+    }
+    return data;
+};
 
 export const ROLES = {
     owner: { label: 'Owner', initial: 'O' },

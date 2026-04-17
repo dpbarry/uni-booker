@@ -1,7 +1,6 @@
 import {
-    API_BASE,
-    MAIN_PAGE_URL,
     ROLES,
+    apiFetch,
     appendPage,
     authKey,
     userKey,
@@ -13,26 +12,30 @@ import {
     signOutAnimateKey,
     syncThemeToggleTitles,
 } from './global.js';
+import { registerDialog, requestDialogClose } from './dialog.js';
+import { mountUpcoming, refreshUpcoming, setUpcomingView } from './upcoming.js';
+import { showToast } from './toast.js';
+import { escapeHtml, initialFromEmail } from './format.js';
+import { handleSlotManagerClick, handleSlotManagerSubmit, refreshOwnerSlots } from './slot-manager.js';
+import { handleBookingManagerClick, refreshDiscoverProfs, refreshPinnedProfs } from './booking-manager.js';
 
 const UPCOMING_VIEW_KEY = 'uni-booker-upcoming-view';
 const UPCOMING_VIEWS = ['month', 'week'];
+const normalizeUpcomingView = (view) => (UPCOMING_VIEWS.includes(view) ? view : 'month');
 
 const getSavedUpcomingView = () => {
-    const v = localStorage.getItem(UPCOMING_VIEW_KEY);
-    if (v && UPCOMING_VIEWS.includes(v)) return v;
-    return 'month';
+    return normalizeUpcomingView(localStorage.getItem(UPCOMING_VIEW_KEY));
 };
 
 const setSavedUpcomingView = (view) => {
-    if (!UPCOMING_VIEWS.includes(view)) return;
-    localStorage.setItem(UPCOMING_VIEW_KEY, view);
+    localStorage.setItem(UPCOMING_VIEW_KEY, normalizeUpcomingView(view));
 };
 
 const applyUpcomingView = (view) => {
     const appView = document.getElementById('view-app');
     if (!appView) return;
-    const resolved = UPCOMING_VIEWS.includes(view) ? view : 'month';
-    const card = appView.querySelector('.card-full');
+    const resolved = normalizeUpcomingView(view);
+    const card = appView.querySelector('.card-upcoming');
     if (card) card.setAttribute('data-upcoming-view', resolved);
 
     appView.querySelectorAll('.view-switcher-option[role="tab"]').forEach((tab) => {
@@ -41,9 +44,7 @@ const applyUpcomingView = (view) => {
         tab.tabIndex = isSelected ? 0 : -1;
     });
 
-    appView.dispatchEvent(
-        new CustomEvent('upcomingviewchange', { detail: { view: resolved }, bubbles: true }),
-    );
+    setUpcomingView(resolved);
 };
 
 let viewSwitcherBound = false;
@@ -93,25 +94,34 @@ const bindViewSwitcher = () => {
     });
 };
 
-const bindWordmarkRefresh = () => {
+const bindWordmarkReload = () => {
     document.querySelector('#view-app .topbar .wordmark')?.addEventListener('click', () => {
         location.reload();
     });
 };
 
+const toast = (message, { error = false, duration = 2200 } = {}) => {
+    showToast({
+        content: `<span>${escapeHtml(message)}</span>`,
+        timeout: duration,
+        variant: error ? 'error' : 'default',
+    });
+};
+
 export const ensureMainPage = async (pageContainer, { append = false } = {}) => {
     if (document.getElementById('view-app')) return;
-    if (append) await appendPage(pageContainer, MAIN_PAGE_URL);
-    else await loadPage(pageContainer, MAIN_PAGE_URL);
+    if (append) await appendPage(pageContainer, 'main.html');
+    else await loadPage(pageContainer, 'main.html');
     syncThemeToggleTitles();
-    bindWordmarkRefresh();
+    bindWordmarkReload();
 
     const user = getUser();
-    applyUserToUI(user);
+    refreshUserUI(user);
     bindAccountMenu();
     bindViewSwitcher();
-    bindCardActions();
-    void hydrateCards(user);
+    bindAppActions();
+    bindDialogClose();
+    void refreshCards(user);
 };
 
 export const getAppView = () => {
@@ -120,21 +130,20 @@ export const getAppView = () => {
     return appView;
 };
 
-const applyUserToUI = (user) => {
+const refreshUserUI = (user) => {
     const appView = document.getElementById('view-app');
-    if (!appView) return;
+    const inviteView = document.getElementById('view-invite');
 
     const role = user && ROLES[user.role] ? user.role : 'student';
     const meta = ROLES[role];
+    const initial = initialFromEmail(user?.email, meta.initial);
 
-    appView.setAttribute('data-role-view', role);
+    if (appView) appView.setAttribute('data-role-view', role);
+    if (inviteView) inviteView.setAttribute('data-role-view', role);
 
-    const initial = (user?.email?.[0] || meta.initial).toUpperCase();
-    const avatarInitial = appView.querySelector('.avatar-initial');
-    if (avatarInitial) avatarInitial.textContent = initial;
-
-    const menu = appView.querySelector('.account-menu');
-    if (!menu) return;
+    document.querySelectorAll('.avatar-initial').forEach((el) => {
+        el.textContent = initial;
+    });
 
     const allUsers = getAllUsers();
     let html = '';
@@ -155,7 +164,7 @@ const applyUserToUI = (user) => {
     if (otherUsers.length > 0) {
         html += `<div class="account-divider"></div>`;
         otherUsers.forEach(u => {
-            const uInitial = u.email[0].toUpperCase();
+            const uInitial = initialFromEmail(u.email);
             const uMeta = ROLES[u.role] || ROLES.student;
             html += `
                 <button type="button" class="account-row account-switch" data-email="${u.email}" role="menuitem">
@@ -181,7 +190,9 @@ const applyUserToUI = (user) => {
         </button>
     `;
 
-    menu.innerHTML = html;
+    document.querySelectorAll('.account-menu').forEach((menu) => {
+        menu.innerHTML = html;
+    });
 };
 
 let accountMenuBound = false;
@@ -190,36 +201,31 @@ const bindAccountMenu = () => {
     if (accountMenuBound) return;
     accountMenuBound = true;
 
-    const getMenu = () => document.querySelector('.account-menu');
-    const getAvatar = () => document.querySelector('.avatar');
-
-    const closeMenu = () => {
-        const menu = getMenu();
-        if (!menu || menu.hidden) return;
-        menu.hidden = true;
-        getAvatar()?.setAttribute('aria-expanded', 'false');
-    };
-
-    const openMenu = () => {
-        const menu = getMenu();
-        if (!menu) return;
-        menu.hidden = false;
-        getAvatar()?.setAttribute('aria-expanded', 'true');
+    const closeAllMenus = () => {
+        document.querySelectorAll('.account-menu').forEach((menu) => {
+            if (menu.hidden) return;
+            menu.hidden = true;
+            menu.parentElement?.querySelector('.avatar')?.setAttribute('aria-expanded', 'false');
+        });
     };
 
     document.addEventListener('click', (e) => {
-        const avatar = e.target.closest('.avatar');
+        const avatar = e.target.closest('.account .avatar');
         if (avatar) {
-            const menu = getMenu();
+            const menu = avatar.parentElement.querySelector('.account-menu');
             if (!menu) return;
-            if (menu.hidden) openMenu();
-            else closeMenu();
+            const wasOpen = !menu.hidden;
+            closeAllMenus();
+            if (!wasOpen) {
+                menu.hidden = false;
+                avatar.setAttribute('aria-expanded', 'true');
+            }
             return;
         }
 
         const addAcc = e.target.closest('.account-add');
         if (addAcc) {
-            closeMenu();
+            closeAllMenus();
             sessionStorage.removeItem(authKey);
             sessionStorage.removeItem(userKey);
             location.replace('#/signin');
@@ -231,7 +237,7 @@ const bindAccountMenu = () => {
             const email = switchAcc.dataset.email;
             const targetUser = getAllUsers().find(u => u.email === email);
             if (targetUser) {
-                closeMenu();
+                closeAllMenus();
                 setUser(targetUser);
                 location.reload();
             }
@@ -240,7 +246,7 @@ const bindAccountMenu = () => {
 
         const signout = e.target.closest('.account-signout');
         if (signout) {
-            closeMenu();
+            closeAllMenus();
             sessionStorage.setItem(signOutAnimateKey, '1');
             clearUser();
             if (sessionStorage.getItem(authKey)) {
@@ -251,225 +257,86 @@ const bindAccountMenu = () => {
             return;
         }
 
-        if (!e.target.closest('.account-menu')) closeMenu();
+        if (!e.target.closest('.account-menu')) closeAllMenus();
     });
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeMenu();
+        if (e.key === 'Escape') closeAllMenus();
     });
 };
 
-let cardActionsBound = false;
+let dialogCloseBound = false;
+const bindDialogClose = () => {
+    if (dialogCloseBound) return;
+    dialogCloseBound = true;
 
-const bindCardActions = () => {
-    if (cardActionsBound) return;
-    cardActionsBound = true;
+    document.addEventListener('click', (e) => {
+        const closer = e.target.closest('[data-action="close-dialog"]');
+        if (closer) {
+            const dlg = closer.closest('dialog.ui-dialog');
+            if (dlg?.open) void requestDialogClose(dlg);
+        }
+    });
+
+    document.querySelectorAll('#view-app dialog.ui-dialog').forEach((dlg) => {
+        registerDialog(dlg);
+    });
+};
+
+let appActionsBound = false;
+
+const bindAppActions = () => {
+    if (appActionsBound) return;
+    appActionsBound = true;
 
     document.addEventListener('click', async (e) => {
-        const newSlotBtn = e.target.closest('[data-action="new-slot"]');
-        if (newSlotBtn) {
-            const form = document.querySelector('.card-slots .slot-form');
-            if (form) form.hidden = false;
-            return;
-        }
+        if (!e.target.closest('#view-app')) return;
 
-        const cancelBtn = e.target.closest('[data-action="cancel-slot"]');
-        if (cancelBtn) {
-            const form = cancelBtn.closest('.slot-form');
-            if (form) {
-                form.hidden = true;
-                form.reset();
-            }
-            return;
-        }
+        if (await handleSlotManagerClick(e, { toast })) return;
+        if (await handleBookingManagerClick(e, { toast })) return;
 
-        const toggleBtn = e.target.closest('[data-action="toggle-slot"]');
-        if (toggleBtn) {
-            const id = Number(toggleBtn.dataset.id);
-            try {
-                const response = await fetch(`${API_BASE}/slots/${id}/toggle`, {
-                    method: 'PUT',
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    alert(data.error || 'Failed to toggle slot');
-                    return;
-                }
-                await renderOwnerSlots();
-            } catch (err) {
-                console.error('Error toggling slot:', err);
-                alert('Server error');
-            }
-            return;
-        }
-
-        const deleteBtn = e.target.closest('[data-action="delete-slot"]');
-        if (deleteBtn) {
-            const id = Number(deleteBtn.dataset.id);
-            if (!confirm('Delete this slot?')) return;
-            try {
-                const response = await fetch(`${API_BASE}/slots/${id}`, {
-                    method: 'DELETE',
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    alert(data.error || 'Failed to delete slot');
-                    return;
-                }
-                await renderOwnerSlots();
-            } catch (err) {
-                console.error('Error deleting slot:', err);
-                alert('Server error');
-            }
-            return;
-        }
-
-        const bookBtn = e.target.closest('[data-action="book-slot"]');
-        if (bookBtn) {
+        const cancelUp = e.target.closest('[data-action="cancel-upcoming"]');
+        if (cancelUp) {
+            const bookingId = Number(cancelUp.dataset.bookingId);
             const user = getUser();
-            if (!user || user.role !== 'student') {
-                alert('Only students can book slots.');
-                return;
-            }
-            const id = Number(bookBtn.dataset.id);
+            const isOwner = user?.role === 'owner';
+            const msg = isOwner
+                ? 'Remove this appointment? The student will be notified.'
+                : 'Cancel this booking? The professor will be notified.';
+            if (!confirm(msg)) return;
             try {
-                const response = await fetch(`${API_BASE}/bookings`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ student_id: user.id, slot_id: id }),
+                await apiFetch(`/bookings/${bookingId}`, {
+                    method: 'DELETE',
+                    body: { cancelled_by_role: isOwner ? 'owner' : 'student' },
                 });
-                const data = await response.json();
-                if (!response.ok) {
-                    alert(data.error || 'Booking failed');
-                    return;
-                }
-                await renderActiveSlots();
-                alert('Booked.');
+                await refreshUpcoming();
+                if (isOwner) await refreshOwnerSlots();
             } catch (err) {
-                console.error('Error booking slot:', err);
-                alert('Server error');
+                toast(err.message || 'Failed to cancel', { error: true });
             }
             return;
         }
     });
 
     document.addEventListener('submit', async (e) => {
-        const form = e.target.closest('.card-slots .slot-form');
-        if (!form) return;
-        e.preventDefault();
+        if (await handleSlotManagerSubmit(e)) return;
+    });
+
+    window.addEventListener('booking-changed', async () => {
         const user = getUser();
-        if (!user || user.role !== 'owner') return;
-        const data = new FormData(form);
-        const date = data.get('date');
-        const time = data.get('time');
-        if (!date || !time) return;
-        try {
-            const response = await fetch(`${API_BASE}/slots/create`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ owner_id: user.id, date, time: `${time}:00` }),
-            });
-            const body = await response.json();
-            if (!response.ok) {
-                alert(body.error || 'Failed to create slot');
-                return;
-            }
-            form.reset();
-            form.hidden = true;
-            await renderOwnerSlots();
-        } catch (err) {
-            console.error('Error creating slot:', err);
-            alert('Server error');
-        }
+        if (!user) return;
+        if (user.role === 'owner') await refreshOwnerSlots();
+        await refreshUpcoming();
     });
 };
 
-const formatDate = (raw) => {
-    if (!raw) return '';
-    return String(raw).split('T')[0];
-};
-
-const formatTime = (raw) => {
-    if (!raw) return '';
-    return String(raw).slice(0, 5);
-};
-
-const renderOwnerSlots = async () => {
-    const user = getUser();
-    if (!user || user.role !== 'owner') return;
-    const card = document.querySelector('.card-slots');
-    if (!card) return;
-    const list = card.querySelector('.slot-list');
-    const empty = card.querySelector('.empty-state');
-
-    let slots = [];
-    try {
-        const response = await fetch(`${API_BASE}/slots/owner/${user.id}`);
-        slots = await response.json();
-        if (!response.ok) throw new Error(slots?.error || 'Failed to load slots');
-    } catch (err) {
-        console.error('Error loading owner slots:', err);
-        return;
-    }
-
-    if (!slots.length) {
-        list.hidden = true;
-        list.innerHTML = '';
-        empty.hidden = false;
-        return;
-    }
-
-    empty.hidden = true;
-    list.hidden = false;
-    list.innerHTML = slots
-        .map((slot) => `
-            <li class="slot-row" data-id="${slot.id}">
-                <span class="slot-when">${formatDate(slot.date)} · ${formatTime(slot.time)}</span>
-                <span class="slot-status">${slot.active ? 'Active' : 'Hidden'}</span>
-                <button type="button" data-action="toggle-slot" data-id="${slot.id}">${slot.active ? 'Deactivate' : 'Activate'}</button>
-                <button type="button" data-action="delete-slot" data-id="${slot.id}">Delete</button>
-            </li>
-        `)
-        .join('');
-};
-
-const renderActiveSlots = async () => {
-    const card = document.querySelector('.card-pinned');
-    if (!card) return;
-    const list = card.querySelector('.slot-list');
-    const empty = card.querySelector('.empty-state');
-
-    let slots = [];
-    try {
-        const response = await fetch(`${API_BASE}/slots/active`);
-        slots = await response.json();
-        if (!response.ok) throw new Error(slots?.error || 'Failed to load slots');
-    } catch (err) {
-        console.error('Error loading active slots:', err);
-        return;
-    }
-
-    if (!slots.length) {
-        list.hidden = true;
-        list.innerHTML = '';
-        empty.hidden = false;
-        return;
-    }
-
-    empty.hidden = true;
-    list.hidden = false;
-    list.innerHTML = slots
-        .map((slot) => `
-            <li class="slot-row" data-id="${slot.id}">
-                <span class="slot-when">${formatDate(slot.date)} · ${formatTime(slot.time)}</span>
-                <button type="button" data-action="book-slot" data-id="${slot.id}">Book</button>
-            </li>
-        `)
-        .join('');
-};
-
-const hydrateCards = async (user) => {
+const refreshCards = async (user) => {
     if (!user) return;
-    if (user.role === 'owner') await renderOwnerSlots();
-    else if (user.role === 'student') await renderActiveSlots();
+    if (user.role === 'owner') {
+        await refreshOwnerSlots();
+    } else if (user.role === 'student') {
+        const pinnedIds = await refreshPinnedProfs();
+        await refreshDiscoverProfs(pinnedIds);
+    }
+    await mountUpcoming(getSavedUpcomingView());
 };
