@@ -1,5 +1,5 @@
-const Database = require('better-sqlite3');
-const db = new Database('./uni_booker.db');
+const Database = require("better-sqlite3");
+const db = new Database("./uni_booker.db");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -35,21 +35,35 @@ db.exec(`
     PRIMARY KEY (student_id, owner_id)
   );
 
+  CREATE TABLE IF NOT EXISTS requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT DEFAULT 'pending',
+  student_id INTEGER,
+  owner_id INTEGER,
+  created_at TEXT,
+  message TEXT,
+  date TEXT,
+  time TEXT
+  );
+
   CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot_unique ON bookings(slot_id);
 `);
 
 const hasColumn = (table, col) =>
-  db.prepare(`PRAGMA table_info(${table})`).all().some((r) => r.name === col);
+  db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((r) => r.name === col);
 
-if (!hasColumn('users', 'invite_token')) db.exec('ALTER TABLE users ADD COLUMN invite_token TEXT');
-if (!hasColumn('slots', 'created_at')) db.exec('ALTER TABLE slots ADD COLUMN created_at TEXT');
-if (!hasColumn('bookings', 'created_at')) db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT');
+if (!hasColumn("users", "invite_token")) db.exec("ALTER TABLE users ADD COLUMN invite_token TEXT");
+if (!hasColumn("slots", "created_at")) db.exec("ALTER TABLE slots ADD COLUMN created_at TEXT");
+if (!hasColumn("bookings", "created_at")) db.exec("ALTER TABLE bookings ADD COLUMN created_at TEXT");
 
-const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get().count;
 if (userCount === 0) {
-  db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run('prof@mcgill.ca', '123', 'owner');
-  db.prepare('INSERT INTO users (email, password, role) VALUES (?, ?, ?)').run('student@mail.mcgill.ca', '123', 'student');
-  console.log('Seed users created: prof@mcgill.ca, student@mail.mcgill.ca (password: 123)');
+  db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("prof@mcgill.ca", "123", "owner");
+  db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("student@mail.mcgill.ca", "123", "student");
+  console.log("Seed users created: prof@mcgill.ca, student@mail.mcgill.ca (password: 123)");
 }
 
 module.exports = db;

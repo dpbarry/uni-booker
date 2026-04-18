@@ -1,9 +1,142 @@
 import { apiFetch, getUser, ApiError } from './global.js';
-import { createDialog, openDialog } from './dialog.js';
+import { createDialog, openDialog, requestDialogClose } from './dialog.js';
 import { showToast } from './toast.js';
 import { escapeHtml, formatClockTime, formatShortDate, initialFromEmail } from './format.js';
+import { createCalendar } from './calendar.js';
 
 const tokenCache = new Map();
+
+const pad2 = (n) => String(n).padStart(2, '0');
+const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const toHm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+const nextRequestDateTime = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
+    d.setSeconds(0, 0);
+
+    return d;
+};
+
+const buildRequestTimeOptions = (selectEl) => {
+    if (!selectEl || selectEl.options.length) return;
+
+    const items = [];
+    for (let h = 8; h <= 16; h++) {
+        for (const m of [0, 30]) {
+            const value = `${pad2(h)}:${pad2(m)}`;
+            items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
+        }
+    }
+
+    selectEl.innerHTML = items.join('');
+};
+
+const openRequestDialog = (ownerId) => {
+    const start = nextRequestDateTime();
+
+    const defaultDate = toYmd(start);
+    const defaultTime = toHm(start);
+
+    const dialog = createDialog({
+        className: 'request-dialog',
+        content: `
+            <form class="dialog-form" data-form="request-meeting">
+                <header class="dialog-header">
+                    <h2 class="dialog-title">Request a meeting</h2>
+                    <button type="button" class="icon-button press" data-action="close-dialog" title="Close">
+                        <svg width="18" height="18" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
+                    </button>
+                </header>
+
+                <label class="dialog-field">
+                    <span>Date</span>
+                    <input type="hidden" name="date" value="${defaultDate}" required>
+                    <div class="request-picker-calendar"></div>
+                </label>
+
+                <label class="dialog-field">
+                    <span>Time</span>
+                    <select name="time" required></select>
+                </label>
+
+                <label class="dialog-field">
+                    <span>Message (optional)</span>
+                    <textarea name="message" rows="3" placeholder="Add a note..."></textarea>
+                </label>
+
+                <p class="dialog-error" hidden></p>
+
+                <footer class="dialog-footer">
+                    <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
+                    <button type="submit" class="primary-button press">Send request</button>
+                </footer>
+            </form>
+        `,
+    });
+
+    const form = dialog.querySelector('.dialog-form');
+
+    const errEl = form.querySelector('.dialog-error');
+    const dateInput = form.querySelector('input[name="date"]');
+    const timeSelect = form.querySelector('select[name="time"]');
+    const calendarHost = form.querySelector('.request-picker-calendar');
+    
+    buildRequestTimeOptions(timeSelect);
+
+    timeSelect.value = defaultTime;
+    if (!timeSelect.value && timeSelect.options.length)
+        timeSelect.selectedIndex = 0;
+
+    const calendar = createCalendar(calendarHost, { mode: 'picker', view: 'month', onSelect: (date) => { dateInput.value = date; } });
+
+    calendar.setSelected(defaultDate);
+    calendar.goto(defaultDate);
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const viewer = getUser();
+        if (!viewer || viewer.role !== 'student')
+            return;
+
+        const date = dateInput.value;
+        const time = timeSelect.value;
+        const message = form.elements.message?.value?.trim() || '';
+        if (!date || !time)
+            return;
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn)
+            submitBtn.disabled = true;
+
+        if (errEl) { 
+            errEl.hidden = true;
+            errEl.textContent = '';
+        }
+
+        try {
+            await apiFetch('/requests', {
+                method: 'POST',
+                body: { student_id: viewer.id, owner_id: ownerId, date, time: `${time}:00`, message },
+            });
+
+            requestDialogClose(dialog);
+
+            showToast({ content: '<span>Meeting request sent</span>', timeout: 2000 });
+        }
+        catch (err) {
+            if (errEl) {
+                errEl.textContent = err.message || 'Could not send request.';
+                errEl.hidden = false;
+            }
+            
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    });
+
+    openDialog(dialog);
+};
 
 export const resolveToken = async (ownerId) => {
     if (tokenCache.has(ownerId)) return tokenCache.get(ownerId);
@@ -35,8 +168,12 @@ const renderContent = (data, viewer) => {
         </div>
     `;
 
+    const requestBtn = isStudent
+        ? `<button type="button" class="primary-button-ghost press" data-action="request-meeting" data-owner-id="${owner.id}">Request a meeting</button>`
+        : '';
+
     if (!slots.length) {
-        return headerHtml + `<div class="booking-empty">No active slots available right now.</div>`;
+        return headerHtml + `<div class="booking-empty">No active slots available right now.</div>${requestBtn}`;
     }
 
     const slotsHtml = slots.map((slot) => {
@@ -66,7 +203,7 @@ const renderContent = (data, viewer) => {
         `;
     }).join('');
 
-    return `${headerHtml}<ul class="booking-slots">${slotsHtml}</ul>`;
+    return `${headerHtml}<ul class="booking-slots">${slotsHtml}</ul>${requestBtn}`;
 };
 
 const closeBound = new WeakSet();
@@ -168,6 +305,13 @@ const bindInteractions = (host, mode, state) => {
                 cancelBtn.disabled = false;
                 setError(activeState.container, err.message || 'Could not cancel.');
             }
+            return;
+        }
+
+        const requestMeetingBtn = e.target.closest('[data-action="request-meeting"]');
+        if (requestMeetingBtn) {
+            const ownerId = Number(requestMeetingBtn.dataset.ownerId);
+            openRequestDialog(ownerId);
             return;
         }
     });
