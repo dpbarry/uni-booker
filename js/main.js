@@ -19,6 +19,7 @@ import { showToast } from './toast.js';
 import { escapeHtml, initialFromEmail } from './format.js';
 import { handleSlotManagerClick, handleSlotManagerSubmit, refreshOwnerSlots } from './slot-manager.js';
 import { handleBookingManagerClick, refreshDiscoverProfs, refreshPinnedProfs } from './booking-manager.js';
+import { refreshNotifications, openNotificationsDialog } from './notifications.js';
 
 const UPCOMING_VIEW_KEY = 'uni-booker-upcoming-view';
 const UPCOMING_VIEWS = ['month', 'week'];
@@ -46,6 +47,7 @@ const rehydrateDbData = async () => {
         const jobs = [refreshUpcoming(), rehydrateBookingViews()];
         if (user.role === 'owner') {
             jobs.push(refreshOwnerSlots());
+            jobs.push(refreshNotifications());
             await Promise.all(jobs);
             return;
         }
@@ -329,6 +331,11 @@ const bindAppActions = () => {
 
     document.addEventListener('click', async (e) => {
         if (!e.target.closest('#view-app')) return;
+
+        if (e.target.closest('[data-action="open-notifications"]')) {
+            await openNotificationsDialog();
+            return;
+        }
 
         if (await handleSlotManagerClick(e, { toast })) return;
         if (await handleBookingManagerClick(e, { toast })) return;
