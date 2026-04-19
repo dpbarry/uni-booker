@@ -2,35 +2,42 @@ import { apiFetch, getUser, ApiError } from './global.js';
 import { createDialog, openDialog, requestDialogClose } from './dialog.js';
 import { showToast } from './toast.js';
 import { escapeHtml, formatClockTime, formatShortDate, initialFromEmail } from './format.js';
+import { createCalendar } from './calendar.js';
 
 const tokenCache = new Map();
 
-const buildRequestTimeOptions = async (selectEl, dateInput, ownerId) => {
-    if (!selectEl) return [];
+const pad2 = (n) => String(n).padStart(2, '0');
+const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const toHm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
-    const slots = await apiFetch(`/slots/owner/${ownerId}`);
-    const available = slots.filter(s => s.active && !s.booking_id);
-    if (!available.length) 
-        return [];
+const nextRequestDateTime = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
+    d.setSeconds(0, 0);
 
-    selectEl.innerHTML = available.map(slot => {
-        const label = `${formatShortDate(slot.date)} at ${formatClockTime(slot.time)}`;
-        return `<option value="${slot.time}" data-date="${slot.date}">${escapeHtml(label)}</option>`;
-    }).join('');
-
-    const syncDate = () => {
-        const opt = selectEl.options[selectEl.selectedIndex];
-        if (opt && dateInput)
-            dateInput.value = opt.dataset.date;
-    };
-
-    selectEl.addEventListener('change', syncDate);
-    syncDate();
-
-    return available;
+    return d;
 };
 
-const openRequestDialog = async (ownerId) => {
+const buildRequestTimeOptions = (selectEl) => {
+    if (!selectEl || selectEl.options.length) return;
+
+    const items = [];
+    for (let h = 8; h <= 16; h++) {
+        for (const m of [0, 30]) {
+            const value = `${pad2(h)}:${pad2(m)}`;
+            items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
+        }
+    }
+
+    selectEl.innerHTML = items.join('');
+};
+
+const openRequestDialog = (ownerId) => {
+    const start = nextRequestDateTime();
+
+    const defaultDate = toYmd(start);
+    const defaultTime = toHm(start);
+
     const dialog = createDialog({
         className: 'request-dialog',
         content: `
@@ -43,11 +50,13 @@ const openRequestDialog = async (ownerId) => {
                 </header>
 
                 <label class="dialog-field">
-                    <input type="hidden" name="date" required>
+                    <span>Date</span>
+                    <input type="hidden" name="date" value="${defaultDate}" required>
+                    <div class="request-picker-calendar"></div>
                 </label>
 
                 <label class="dialog-field">
-                    <span>Available slot</span>
+                    <span>Time</span>
                     <select name="time" required></select>
                 </label>
 
@@ -71,17 +80,18 @@ const openRequestDialog = async (ownerId) => {
     const errEl = form.querySelector('.dialog-error');
     const dateInput = form.querySelector('input[name="date"]');
     const timeSelect = form.querySelector('select[name="time"]');
+    const calendarHost = form.querySelector('.request-picker-calendar');
+    
+    buildRequestTimeOptions(timeSelect);
 
-    const available = await buildRequestTimeOptions(timeSelect, dateInput, ownerId);
+    timeSelect.value = defaultTime;
+    if (!timeSelect.value && timeSelect.options.length)
+        timeSelect.selectedIndex = 0;
 
-    if (!available.length) {
-        timeSelect.closest('label').hidden = true;
-        form.querySelector('button[type="submit"]').disabled = true;
-        if (errEl) {
-            errEl.textContent = 'This professor has no available slots to request.';
-            errEl.hidden = false;
-        }
-    }
+    const calendar = createCalendar(calendarHost, { mode: 'picker', view: 'month', onSelect: (date) => { dateInput.value = date; } });
+
+    calendar.setSelected(defaultDate);
+    calendar.goto(defaultDate);
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();

@@ -429,7 +429,8 @@ app.patch("/requests/:id", async (req, res) => {
 
   if (status === "accepted") {
     db.transaction(() => {
-      const slot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
+      const slot = db
+        .prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
         .run(request.owner_id, request.date, request.time, "office_hours", nowIso());
 
       db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(request.student_id, slot.lastInsertRowid, nowIso());
