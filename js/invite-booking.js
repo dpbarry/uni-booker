@@ -15,6 +15,11 @@ const nextRequestDateTime = () => {
     d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
     d.setSeconds(0, 0);
 
+    if (d.getHours() >= 20) {
+        d.setDate(d.getDate() + 1);
+        d.setHours(8, 0, 0, 0);
+    }
+
     return d;
 };
 
@@ -22,7 +27,7 @@ const buildRequestTimeOptions = (selectEl) => {
     if (!selectEl || selectEl.options.length) return;
 
     const items = [];
-    for (let h = 8; h <= 16; h++) {
+    for (let h = 8; h <= 19; h++) {
         for (const m of [0, 30]) {
             const value = `${pad2(h)}:${pad2(m)}`;
             items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
