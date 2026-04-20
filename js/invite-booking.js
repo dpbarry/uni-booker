@@ -309,7 +309,6 @@ const bindInteractions = (host, mode, state) => {
             } catch (err) {
                 showToast({ content: `<span>${err.message || 'Failed to create link'}</span>`, timeout: 2000, variant: 'error' });
             }
-            return;
         }
 
     });

@@ -348,13 +348,10 @@ const bindAppActions = () => {
             } catch (err) {
                 toast(err.message || 'Failed to cancel', { error: true });
             }
-            return;
         }
     });
 
-    document.addEventListener('submit', async (e) => {
-        if (await handleSlotManagerSubmit(e)) return;
-    });
+    document.addEventListener('submit', handleSlotManagerSubmit);
 
     window.addEventListener('booking-changed', () => {
         void rehydrateDbData();
