@@ -68,6 +68,25 @@
   white-space: nowrap;
 }
 
+a.booking-heading-email {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-decoration: none;
+  transition: color 140ms ease;
+}
+
+a.booking-heading-email svg {
+  color: var(--color-muted);
+  flex-shrink: 0;
+  transition: color 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  a.booking-heading-email:hover { color: var(--color-accent); }
+  a.booking-heading-email:hover svg { color: var(--color-accent); }
+}
+
 .booking-slots {
   list-style: none;
   margin: 0;
@@ -123,20 +142,6 @@
   flex-wrap: wrap;
 }
 
-.booking-mailto {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: color 140ms ease;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .booking-mailto:hover { color: var(--color-base); }
-}
 
 .invite-wrap {
   flex: 1;

@@ -3,13 +3,9 @@ import { openDialog, requestDialogClose } from './dialog.js';
 import { resolveToken } from './invite-booking.js';
 import { refreshUpcoming } from './upcoming.js';
 import { createCalendar } from './calendar.js';
-import { escapeHtml, formatClockTime, formatShortDate } from './format.js';
+import { escapeHtml, formatClockTime, formatShortDate, toHm, toYmd } from './format.js';
 
 let slotPickerCalendar = null;
-
-const pad2 = (n) => String(n).padStart(2, '0');
-const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const toHm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
 const nextSlotDateTime = () => {
     const d = new Date();
@@ -23,7 +19,7 @@ const buildTimeOptions = (selectEl) => {
     const items = [];
     for (let h = 0; h <= 23; h++) {
         for (const m of [0, 30]) {
-            const value = `${pad2(h)}:${pad2(m)}`;
+            const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
             items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
         }
     }
@@ -32,8 +28,7 @@ const buildTimeOptions = (selectEl) => {
 
 const loadOwnerSlots = async (ownerId) => {
     try {
-        const rows = await apiFetch(`/slots/owner/${ownerId}`);
-        return Array.isArray(rows) ? rows : [];
+        return await apiFetch(`/slots/owner/${ownerId}`);
     } catch (err) {
         console.error('Error loading owner slots:', err);
         return [];
@@ -67,18 +62,12 @@ const resetSlotDialogForm = (dialogEl) => {
     const err = dialogEl.querySelector('.dialog-error');
     const start = nextSlotDateTime();
     const date = toYmd(start);
-    const time = toHm(start);
-    if (dateInput) dateInput.value = date;
-    if (timeSelect) {
-        timeSelect.value = time;
-        if (!timeSelect.value && timeSelect.options.length) timeSelect.selectedIndex = 0;
-    }
+    dateInput.value = date;
+    timeSelect.value = toHm(start);
     slotPickerCalendar?.setSelected(date);
     slotPickerCalendar?.goto(date);
-    if (err) {
-        err.hidden = true;
-        err.textContent = '';
-    }
+    err.hidden = true;
+    err.textContent = '';
 };
 
 export const refreshOwnerSlots = async () => {
@@ -148,19 +137,7 @@ export const handleSlotManagerClick = async (e, { toast }) => {
         if (!user || user.role !== 'owner') return true;
         try {
             const token = await resolveToken(user.id);
-            const url = `${location.origin}${location.pathname}#/invite/${token}`;
-            try {
-                await navigator.clipboard.writeText(url);
-            } catch {
-                const ta = document.createElement('textarea');
-                ta.value = url;
-                ta.style.position = 'fixed';
-                ta.style.opacity = '0';
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand?.('copy');
-                ta.remove();
-            }
+            await navigator.clipboard.writeText(`${location.origin}${location.pathname}#/invite/${token}`);
             toast('Invite link copied');
         } catch (err) {
             toast(err.message || 'Failed to create link', { error: true });

@@ -74,3 +74,9 @@ export const createDialog = ({ className = '', content = '' } = {}) => {
     registerDialog(dialogEl, true);
     return dialogEl;
 };
+
+export const closeAllDialogs = () => {
+    document.querySelectorAll('dialog[open]').forEach((dlg) => requestDialogClose(dlg));
+};
+
+window.addEventListener('hashchange', closeAllDialogs);

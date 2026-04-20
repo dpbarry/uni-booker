@@ -1,14 +1,10 @@
 import { apiFetch, getUser, ApiError } from './global.js';
 import { createDialog, openDialog, requestDialogClose } from './dialog.js';
 import { showToast } from './toast.js';
-import { escapeHtml, formatClockTime, formatShortDate, initialFromEmail } from './format.js';
+import { escapeHtml, formatClockTime, formatShortDate, initialFromEmail, toHm, toYmd } from './format.js';
 import { createCalendar } from './calendar.js';
 
 const tokenCache = new Map();
-
-const pad2 = (n) => String(n).padStart(2, '0');
-const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const toHm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
 const nextRequestDateTime = () => {
     const d = new Date();
@@ -29,7 +25,7 @@ const buildRequestTimeOptions = (selectEl) => {
     const items = [];
     for (let h = 8; h <= 19; h++) {
         for (const m of [0, 30]) {
-            const value = `${pad2(h)}:${pad2(m)}`;
+            const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
             items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
         }
     }
@@ -81,62 +77,48 @@ const openRequestDialog = (ownerId) => {
     });
 
     const form = dialog.querySelector('.dialog-form');
-
     const errEl = form.querySelector('.dialog-error');
     const dateInput = form.querySelector('input[name="date"]');
     const timeSelect = form.querySelector('select[name="time"]');
     const calendarHost = form.querySelector('.request-picker-calendar');
-    
+
     buildRequestTimeOptions(timeSelect);
-
     timeSelect.value = defaultTime;
-    if (!timeSelect.value && timeSelect.options.length)
-        timeSelect.selectedIndex = 0;
 
-    const calendar = createCalendar(calendarHost, { mode: 'picker', view: 'month', onSelect: (date) => { dateInput.value = date; } });
-
+    const calendar = createCalendar(calendarHost, {
+        mode: 'picker',
+        view: 'month',
+        onSelect: (date) => { dateInput.value = date; },
+    });
     calendar.setSelected(defaultDate);
     calendar.goto(defaultDate);
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-
         const viewer = getUser();
-        if (!viewer || viewer.role !== 'student')
-            return;
+        if (viewer?.role !== 'student') return;
 
         const date = dateInput.value;
         const time = timeSelect.value;
-        const message = form.elements.message?.value?.trim() || '';
-        if (!date || !time)
-            return;
+        const message = form.elements.message.value.trim();
+        if (!date || !time) return;
 
         const submitBtn = form.querySelector('button[type="submit"]');
-        if (submitBtn)
-            submitBtn.disabled = true;
-
-        if (errEl) { 
-            errEl.hidden = true;
-            errEl.textContent = '';
-        }
+        submitBtn.disabled = true;
+        errEl.hidden = true;
+        errEl.textContent = '';
 
         try {
             await apiFetch('/requests', {
                 method: 'POST',
                 body: { student_id: viewer.id, owner_id: ownerId, date, time: `${time}:00`, message },
             });
-
             requestDialogClose(dialog);
-
             showToast({ content: '<span>Meeting request sent</span>', timeout: 2000 });
-        }
-        catch (err) {
-            if (errEl) {
-                errEl.textContent = err.message || 'Could not send request.';
-                errEl.hidden = false;
-            }
-            
-            if (submitBtn) submitBtn.disabled = false;
+        } catch (err) {
+            errEl.textContent = err.message || 'Could not send request.';
+            errEl.hidden = false;
+            submitBtn.disabled = false;
         }
     });
 
@@ -163,13 +145,16 @@ const renderContent = (data, viewer) => {
                 <span class="prof-avatar">${initialFromEmail(owner.email)}</span>
                 <div class="booking-heading-meta">
                     <span class="booking-heading-label">${isOwnerViewing ? 'Your slots' : 'Book with'}</span>
-                    <span class="booking-heading-email">${escapeHtml(owner.email)}</span>
+                    <a class="booking-heading-email" href="mailto:${encodeURIComponent(owner.email)}" title="Email ${escapeHtml(owner.email)}">
+                        <span>${escapeHtml(owner.email)}</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24"><use href="assets/icons.svg#mail" /></svg>
+                    </a>
                 </div>
             </div>
-            <a class="booking-mailto" href="mailto:${encodeURIComponent(owner.email)}" title="Email ${escapeHtml(owner.email)}">
-                <svg width="15" height="15" viewBox="0 0 24 24"><use href="assets/icons.svg#mail" /></svg>
-                <span>Email</span>
-            </a>
+            <button type="button" class="ghost-button press" data-action="share-booking-link" data-owner-id="${owner.id}">
+                <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#link" /></svg>
+                <span>Share link</span>
+            </button>
         </div>
     `;
 
@@ -211,8 +196,6 @@ const renderContent = (data, viewer) => {
     return `${headerHtml}<ul class="booking-slots">${slotsHtml}</ul>${requestBtn}`;
 };
 
-const closeBound = new WeakSet();
-
 const ensureBookingDialog = () => {
     const existing = document.querySelector('.booking-dialog');
     if (existing) return existing;
@@ -220,17 +203,13 @@ const ensureBookingDialog = () => {
         className: 'booking-dialog',
         content: '<div class="booking-dialog-body"></div>',
     });
+    dialog.addEventListener('close', dismissViewOnlyToast);
     return dialog;
 };
 
 const getContainer = (mode) => {
     if (mode === 'page') return document.querySelector('#view-invite .invite-inner');
-    const dialog = ensureBookingDialog();
-    if (!closeBound.has(dialog)) {
-        closeBound.add(dialog);
-        dialog.addEventListener('close', dismissViewOnlyToast);
-    }
-    return dialog.querySelector('.booking-dialog-body');
+    return ensureBookingDialog().querySelector('.booking-dialog-body');
 };
 
 const setError = (container, message) => {
@@ -319,13 +298,28 @@ const bindInteractions = (host, mode, state) => {
             openRequestDialog(ownerId);
             return;
         }
+
+        const shareBtn = e.target.closest('[data-action="share-booking-link"]');
+        if (shareBtn) {
+            const ownerId = Number(shareBtn.dataset.ownerId);
+            try {
+                const token = await resolveToken(ownerId);
+                await navigator.clipboard.writeText(`${location.origin}${location.pathname}#/invite/${token}`);
+                showToast({ content: '<span>Invite link copied</span>', timeout: 2000 });
+            } catch (err) {
+                showToast({ content: `<span>${err.message || 'Failed to create link'}</span>`, timeout: 2000, variant: 'error' });
+            }
+            return;
+        }
+
     });
 };
 
 const refreshBookingView = async (mode, state) => {
     try {
-        const data = await apiFetch(`/invite/${encodeURIComponent(state.token)}`);
         const viewer = getUser();
+        const qs = viewer ? `?viewer=${viewer.id}` : '';
+        const data = await apiFetch(`/invite/${encodeURIComponent(state.token)}${qs}`);
         state.container.innerHTML = renderContent(data, viewer);
     } catch (err) {
         state.container.innerHTML = '';

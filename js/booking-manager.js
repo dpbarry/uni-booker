@@ -4,8 +4,7 @@ import { escapeHtml, initialFromEmail } from './format.js';
 
 const loadList = async (path, label) => {
     try {
-        const data = await apiFetch(path);
-        return Array.isArray(data) ? data : [];
+        return await apiFetch(path);
     } catch (err) {
         console.error(`Error loading ${label}:`, err);
         return [];

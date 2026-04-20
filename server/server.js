@@ -101,6 +101,7 @@ app.post("/owners/:id/invite-token", (req, res) => {
 app.get("/invite/:token", (req, res) => {
   const owner = db.prepare("SELECT id, email FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
   if (!owner) return res.status(404).json({ error: "Invite link not found" });
+  const viewerId = Number(req.query.viewer) || 0;
   const slots = db
     .prepare(
       `
@@ -111,10 +112,11 @@ app.get("/invite/:token", (req, res) => {
     WHERE s.owner_id = ?
       AND s.active = 1
       AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
+      AND (b.id IS NULL OR b.student_id = ?)
     ORDER BY s.date ASC, s.time ASC
   `,
     )
-    .all(owner.id);
+    .all(owner.id, viewerId);
   res.json({ owner, slots });
 });
 
@@ -125,7 +127,7 @@ app.post("/slots/create", (req, res) => {
 
   const result = db
     .prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-    .run(owner_id, date, time, type ?? "office_hours", nowIso());
+    .run(owner_id, date, time, type ?? "onetime", nowIso());
 
   res.json({ id: result.lastInsertRowid });
 });
@@ -431,7 +433,7 @@ app.patch("/requests/:id", async (req, res) => {
     db.transaction(() => {
       const slot = db
         .prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-        .run(request.owner_id, request.date, request.time, "office_hours", nowIso());
+        .run(request.owner_id, request.date, request.time, "requested", nowIso());
 
       db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(request.student_id, slot.lastInsertRowid, nowIso());
 
@@ -468,9 +470,13 @@ app.delete("/requests/:id", (req, res) => {
 });
 
 
-app.post("/maintenance/cleanup-expired", (_req, res) => {
-  res.json(cleanupExpired());
-});
+const CLEANUP_INTERVAL_MS = 60_000;
+const runCleanup = () => {
+  try { cleanupExpired(); }
+  catch (err) { console.error("[cleanup] failed:", err?.message || err); }
+};
+runCleanup();
+setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "localhost";

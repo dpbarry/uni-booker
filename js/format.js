@@ -25,3 +25,7 @@ export const formatClockTime = (rawTime) => {
     date.setHours(hours, minutes, 0, 0);
     return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 };
+
+const pad2 = (n) => String(n).padStart(2, '0');
+export const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const toHm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;

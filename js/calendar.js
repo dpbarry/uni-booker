@@ -16,11 +16,10 @@ const addDays = (d, n) => {
 const startOfWeek = (d) => addDays(d, -d.getDay());
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear()
     && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-const clearNavHover = (root) => { // needed for some reason... otherwise glitches
+const clearNavHover = (root) => {
     root.querySelectorAll('.cal-nav-btn.is-hovered').forEach((btn) => btn.classList.remove('is-hovered'));
 };
 
- // VISUALIZER, PICKER, OR RANGE
 export const createCalendar = (el, opts = {}) => {
     const state = {
         mode: opts.mode || 'visualizer',

@@ -1,26 +1,11 @@
-const FROM = process.env.RESEND_FROM;
+const { Resend } = require("resend");
 
-let client = null;
-const getClient = () => {
-  if (client) return client;
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  const { Resend } = require("resend");
-  client = new Resend(key);
-  return client;
-};
+const FROM = process.env.RESEND_FROM;
+const client = new Resend(process.env.RESEND_API_KEY);
 
 const send = async ({ to, subject, text }) => {
-  const c = getClient();
-  if (!c) {
-    console.log("[mail stub]", { to, subject, text });
-    return;
-  }
-  try {
-    await c.emails.send({ from: FROM, to, subject, text });
-  } catch (err) {
-    console.error("[mail] send failed:", err?.message || err);
-  }
+  const { error } = await client.emails.send({ from: FROM, to, subject, text });
+  if (error) console.error("[mail] send failed:", error.message);
 };
 
 const whenLabel = (date, time) => `${date} at ${String(time).slice(0, 5)}`;
@@ -61,7 +46,6 @@ exports.notifySlotBooked = ({ to, studentEmail, date, time }) =>
   });
 
   
-// Place holder for approval office hours emailing system
 exports.notifyMeetingRequested = ({ to, studentEmail, date, time }) =>
   send({
     to,

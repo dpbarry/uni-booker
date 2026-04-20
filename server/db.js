@@ -15,7 +15,7 @@ db.exec(`
     owner_id INTEGER,
     date TEXT,
     time TEXT,
-    type TEXT DEFAULT 'office_hours',
+    type TEXT DEFAULT 'onetime',
     active INTEGER DEFAULT 1,
     invite_token TEXT,
     created_at TEXT

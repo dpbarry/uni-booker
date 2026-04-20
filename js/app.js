@@ -11,29 +11,21 @@ const state = {
 };
 
 const isAuthed = () => sessionStorage.getItem(authKey) === '1';
-const setHash = (hash) => location.replace(hash);
-
-const parseInviteToken = (hash) => {
-  const m = /^#\/invite\/(.+)$/.exec(hash || '');
-  return m ? decodeURIComponent(m[1]) : null;
-};
 
 const onSignIn = () => {
   state.animateNextEntry = true;
   const pending = sessionStorage.getItem(pendingInviteKey);
   if (pending) {
     sessionStorage.removeItem(pendingInviteKey);
-    setHash(`#/invite/${pending}`);
+    location.replace(`#/invite/${pending}`);
     return;
   }
-  setHash('#/');
+  location.replace('#/');
 };
 
 const showTopPage = (which) => {
-  const app = document.getElementById('view-app');
-  const invite = document.getElementById('view-invite');
-  if (app) app.hidden = which !== 'app';
-  if (invite) invite.hidden = which !== 'invite';
+  document.getElementById('view-app')?.toggleAttribute('hidden', which !== 'app');
+  document.getElementById('view-invite')?.toggleAttribute('hidden', which !== 'invite');
 };
 
 async function enterMainPage() {
@@ -82,16 +74,17 @@ const route = async () => {
   document.title = APP_TITLE;
   if (state.busy) return;
 
-  const inviteToken = parseInviteToken(location.hash);
+  const inviteMatch = /^#\/invite\/(.+)$/.exec(location.hash);
+  const inviteToken = inviteMatch ? decodeURIComponent(inviteMatch[1]) : null;
 
   if (!isAuthed()) {
     if (inviteToken) {
       sessionStorage.setItem(pendingInviteKey, inviteToken);
-      setHash('#/signin');
+      location.replace('#/signin');
       return;
     }
     if (location.hash !== '#/signin') {
-      setHash('#/signin');
+      location.replace('#/signin');
       return;
     }
     state.busy = true;
@@ -128,7 +121,7 @@ const route = async () => {
   }
 
   if (location.hash && location.hash !== '#/') {
-    setHash('#/');
+    location.replace('#/');
     return;
   }
 
