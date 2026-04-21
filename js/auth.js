@@ -1,7 +1,50 @@
-import {API_BASE, appendPage, AUTH_PAGE_URL, authKey, loadPage, setUser, syncThemeToggleTitles} from './global.js';
+import {
+    API_BASE,
+    appendPage,
+    AUTH_PAGE_URL,
+    authKey,
+    getAllUsers,
+    getUser,
+    loadPage,
+    setUser,
+    syncThemeToggleTitles,
+} from './global.js';
+import { escapeHtml, initialsFromEmail } from './format.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 let formBound = false;
+
+const renderSavedAccounts = (onSignIn) => {
+    const wrap = document.getElementById('auth-accounts');
+    if (!wrap) return;
+    const users = getAllUsers();
+    if (users.length < 1) {
+        wrap.hidden = true;
+        wrap.innerHTML = '';
+        return;
+    }
+    const currentEmail = getUser()?.email ?? null;
+    wrap.hidden = false;
+    wrap.innerHTML = `<div class="auth-accounts-inner">${users
+        .map((u) => {
+            const emailAttr = escapeHtml(u.email);
+            const initials = escapeHtml(initialsFromEmail(u.email));
+            const isCurrent = currentEmail === u.email;
+            return `<button type="button" class="auth-account-chip press${isCurrent ? ' is-current' : ''}" data-email="${emailAttr}" aria-label="Sign in as ${emailAttr}" title="${emailAttr}">${initials}</button>`;
+        })
+        .join('')}</div>`;
+
+    wrap.onclick = (e) => {
+        const btn = e.target.closest('.auth-account-chip');
+        if (!btn || !wrap.contains(btn)) return;
+        const email = btn.dataset.email;
+        const target = getAllUsers().find((x) => x.email === email);
+        if (!target) return;
+        setUser(target);
+        sessionStorage.setItem(authKey, '1');
+        onSignIn();
+    };
+};
 
 export const ensureAuthPage = async (pageContainer, onSignIn, {append = false} = {}) => {
     if (!document.getElementById('view-auth')) {
@@ -96,5 +139,6 @@ export const ensureAuthPage = async (pageContainer, onSignIn, {append = false} =
         });
     }
 
+    renderSavedAccounts(onSignIn);
     syncThemeToggleTitles();
 };

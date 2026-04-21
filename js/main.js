@@ -16,7 +16,7 @@ import { registerDialog, requestDialogClose, closeAllDialogs } from './dialog.js
 import { mountUpcoming, refreshUpcoming, setUpcomingView } from './upcoming.js';
 import { rehydrateBookingViews } from './invite-booking.js';
 import { showToast } from './toast.js';
-import { escapeHtml, initialFromEmail } from './format.js';
+import { escapeHtml, initialsFromEmail } from './format.js';
 import { handleSlotManagerClick, handleSlotManagerSubmit, refreshOwnerSlots } from './slot-manager.js';
 import { handleBookingManagerClick, refreshDiscoverProfs, refreshPinnedProfs } from './booking-manager.js';
 import { refreshNotifications, openNotificationsDialog } from './notifications.js';
@@ -167,7 +167,7 @@ const refreshUserUI = (user) => {
 
     const role = user && ROLES[user.role] ? user.role : 'student';
     const meta = ROLES[role];
-    const initial = initialFromEmail(user?.email, meta.initial);
+    const initial = initialsFromEmail(user?.email, meta.initial);
 
     if (appView) appView.setAttribute('data-role-view', role);
     if (inviteView) inviteView.setAttribute('data-role-view', role);
@@ -195,7 +195,7 @@ const refreshUserUI = (user) => {
     if (otherUsers.length > 0) {
         html += `<div class="account-divider"></div>`;
         otherUsers.forEach(u => {
-            const uInitial = initialFromEmail(u.email);
+            const uInitial = initialsFromEmail(u.email);
             const uMeta = ROLES[u.role] || ROLES.student;
             html += `
                 <button type="button" class="account-row account-switch" data-email="${u.email}" role="menuitem">

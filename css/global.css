@@ -71,6 +71,12 @@
   height: 6px;
 }
 
+*::selection {
+  background: hsl(var(--accent-h) 70% 60%);
+  color: var(--color-elevated);
+}
+
+
 *::-webkit-scrollbar-track,
 *::-webkit-scrollbar-track-piece {
   background: transparent;

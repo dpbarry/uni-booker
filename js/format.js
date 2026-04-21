@@ -6,7 +6,18 @@ export const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) =>
     "'": '&#39;',
 }[char]));
 
-export const initialFromEmail = (email, fallback = '?') => (email?.[0] || fallback).toUpperCase();
+export const initialsFromEmail = (email, fallback = '?') => {
+    if (!email || typeof email !== 'string') return fallback;
+    const local = email.split('@')[0] || '';
+    const one = () => {
+        const m = local.match(/[a-zA-Z0-9]/);
+        return m ? m[0].toUpperCase() : fallback;
+    };
+    if (/[^a-zA-Z0-9.]/.test(local)) return one();
+    const parts = local.split('.').filter(Boolean);
+    if (parts.length < 2) return one();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+};
 
 export const formatShortDate = (rawDate) => {
     if (!rawDate) return '';

@@ -4,17 +4,27 @@ import { escapeHtml, formatClockTime, formatShortDate } from './format.js';
 import { showToast } from './toast.js';
 
 const renderRequests = (requests) => {
-    if (!requests.length) return `<p class="booking-empty">No pending meeting requests.</p>`;
+    if (!requests.length) return `<li class="notif-empty">No pending meeting requests.</li>`;
     return requests.map((r) => `
         <li class="notif-request-row" data-id="${r.id}">
-            <div class="notif-request-info">
+            <div class="notif-request-meta">
                 <span class="notif-request-email">${escapeHtml(r.student_email)}</span>
                 <span class="notif-request-when">${formatShortDate(r.date)} at ${formatClockTime(r.time)}</span>
-                ${r.message ? `<span class="notif-request-message">${escapeHtml(r.message)}</span>` : ''}
             </div>
+            ${r.message ? `
+            <div class="notif-request-note-wrap">
+                <p class="notif-request-note">${escapeHtml(r.message)}</p>
+            </div>
+            ` : ''}
             <div class="notif-request-actions">
-                <button type="button" class="primary-button press" data-action="accept-request" data-id="${r.id}">Accept</button>
-                <button type="button" class="primary-button-ghost press" data-action="decline-request" data-id="${r.id}">Decline</button>
+                <button type="button" class="notif-action-btn notif-action-accept press" data-action="accept-request" data-id="${r.id}">
+                    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#check" /></svg>
+                    <span>Accept</span>
+                </button>
+                <button type="button" class="notif-action-btn notif-action-decline press" data-action="decline-request" data-id="${r.id}">
+                    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#x" /></svg>
+                    <span>Decline</span>
+                </button>
             </div>
         </li>
     `).join('');

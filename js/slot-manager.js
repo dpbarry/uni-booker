@@ -3,27 +3,17 @@ import { openDialog, requestDialogClose } from './dialog.js';
 import { resolveToken } from './invite-booking.js';
 import { refreshUpcoming } from './upcoming.js';
 import { createCalendar } from './calendar.js';
+import { createTimePicker } from './time-picker.js';
 import { escapeHtml, formatClockTime, formatShortDate, toHm, toYmd } from './format.js';
 
 let slotPickerCalendar = null;
+let slotTimePicker = null;
 
 const nextSlotDateTime = () => {
     const d = new Date();
     d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
     d.setSeconds(0, 0);
     return d;
-};
-
-const buildTimeOptions = (selectEl) => {
-    if (!selectEl || selectEl.options.length) return;
-    const items = [];
-    for (let h = 0; h <= 23; h++) {
-        for (const m of [0, 30]) {
-            const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-            items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
-        }
-    }
-    selectEl.innerHTML = items.join('');
 };
 
 const loadOwnerSlots = async (ownerId) => {
@@ -39,10 +29,10 @@ const ensureSlotDialogPicker = (dialogEl) => {
     if (!dialogEl) return;
     const calendarHost = dialogEl.querySelector('.slot-picker-calendar');
     const dateInput = dialogEl.querySelector('input[name="date"]');
-    const timeSelect = dialogEl.querySelector('select[name="time"]');
-    if (!calendarHost || !dateInput || !timeSelect) return;
+    const timeInput = dialogEl.querySelector('input[name="time"]');
+    const timePickerHost = dialogEl.querySelector('.slot-time-picker');
+    if (!calendarHost || !dateInput || !timeInput || !timePickerHost) return;
 
-    buildTimeOptions(timeSelect);
     if (!slotPickerCalendar) {
         slotPickerCalendar = createCalendar(calendarHost, {
             mode: 'picker',
@@ -52,18 +42,26 @@ const ensureSlotDialogPicker = (dialogEl) => {
             },
         });
     }
+
+    if (!slotTimePicker) {
+        slotTimePicker = createTimePicker(timePickerHost, {
+            value: timeInput.value || toHm(nextSlotDateTime()),
+            onChange: (next) => { timeInput.value = next; },
+        });
+    }
 };
 
 const resetSlotDialogForm = (dialogEl) => {
     if (!dialogEl) return;
     ensureSlotDialogPicker(dialogEl);
     const dateInput = dialogEl.querySelector('input[name="date"]');
-    const timeSelect = dialogEl.querySelector('select[name="time"]');
+    const timeInput = dialogEl.querySelector('input[name="time"]');
     const err = dialogEl.querySelector('.dialog-error');
     const start = nextSlotDateTime();
     const date = toYmd(start);
     dateInput.value = date;
-    timeSelect.value = toHm(start);
+    timeInput.value = toHm(start);
+    slotTimePicker?.setValue(timeInput.value, { silent: true });
     slotPickerCalendar?.setSelected(date);
     slotPickerCalendar?.goto(date);
     err.hidden = true;

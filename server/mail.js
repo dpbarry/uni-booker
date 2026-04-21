@@ -2,9 +2,18 @@ const { Resend } = require("resend");
 
 const FROM = process.env.RESEND_FROM;
 const client = new Resend(process.env.RESEND_API_KEY);
+const DEMO_MAIL_TO = process.env.DEMO_MAIL_TO?.trim();
+
+const resolveTo = (to) => {
+  if (!DEMO_MAIL_TO) return to;
+  if (Array.isArray(to)) return to.map(resolveTo);
+  const key = String(to).trim().toLowerCase();
+  if (key === "prof@mcgill.ca" || key === "student@mail.mcgill.ca") return DEMO_MAIL_TO;
+  return to;
+};
 
 const send = async ({ to, subject, text }) => {
-  const { error } = await client.emails.send({ from: FROM, to, subject, text });
+  const { error } = await client.emails.send({ from: FROM, to: resolveTo(to), subject, text });
   if (error) console.error("[mail] send failed:", error.message);
 };
 

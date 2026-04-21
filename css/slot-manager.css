@@ -11,6 +11,10 @@
 
 .slot-list[hidden] { display: none; }
 
+.slot-time-picker {
+  width: 100%;
+}
+
 .slot-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;

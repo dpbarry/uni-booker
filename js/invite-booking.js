@@ -1,36 +1,26 @@
 import { apiFetch, getUser, ApiError } from './global.js';
 import { createDialog, openDialog, requestDialogClose } from './dialog.js';
 import { showToast } from './toast.js';
-import { escapeHtml, formatClockTime, formatShortDate, initialFromEmail, toHm, toYmd } from './format.js';
+import { escapeHtml, formatClockTime, formatShortDate, initialsFromEmail, toHm, toYmd } from './format.js';
 import { createCalendar } from './calendar.js';
+import { createTimePicker } from './time-picker.js';
 
 const tokenCache = new Map();
 
 const nextRequestDateTime = () => {
     const d = new Date();
-    d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
-    d.setSeconds(0, 0);
-
-    if (d.getHours() >= 20) {
-        d.setDate(d.getDate() + 1);
-        d.setHours(8, 0, 0, 0);
-    }
-
+    d.setDate(d.getDate() + 1);
+    d.setHours(14, 0, 0, 0);
     return d;
 };
 
-const buildRequestTimeOptions = (selectEl) => {
-    if (!selectEl || selectEl.options.length) return;
-
-    const items = [];
-    for (let h = 8; h <= 19; h++) {
-        for (const m of [0, 30]) {
-            const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-            items.push(`<option value="${value}">${formatClockTime(value)}</option>`);
-        }
-    }
-
-    selectEl.innerHTML = items.join('');
+const todayYmd = () => toYmd(new Date());
+const isFutureDateTime = (ymd, hm) => {
+    if (!ymd || !hm) return false;
+    const [y, m, d] = ymd.split('-').map(Number);
+    const [h, min] = hm.split(':').map(Number);
+    const selected = new Date(y, m - 1, d, h, min, 0, 0);
+    return selected.getTime() > Date.now();
 };
 
 const openRequestDialog = (ownerId) => {
@@ -42,7 +32,7 @@ const openRequestDialog = (ownerId) => {
     const dialog = createDialog({
         className: 'request-dialog',
         content: `
-            <form class="dialog-form" data-form="request-meeting">
+            <form class="dialog-form request-meeting-form" data-form="request-meeting">
                 <header class="dialog-header">
                     <h2 class="dialog-title">Request a meeting</h2>
                     <button type="button" class="icon-button press" data-action="close-dialog" title="Close">
@@ -50,48 +40,87 @@ const openRequestDialog = (ownerId) => {
                     </button>
                 </header>
 
-                <label class="dialog-field">
-                    <span>Date</span>
+                <div class="dialog-field dialog-field--date">
+                    <div class="dialog-label-row">
+                        <span class="dialog-label">Date</span>
+                        <span class="dialog-field-warning" id="request-date-warning" aria-live="polite"></span>
+                    </div>
                     <input type="hidden" name="date" value="${defaultDate}" required>
                     <div class="request-picker-calendar"></div>
-                </label>
+                </div>
 
-                <label class="dialog-field">
-                    <span>Time</span>
-                    <select name="time" required></select>
-                </label>
+                <div class="dialog-field dialog-field--time">
+                    <span class="dialog-label">Time</span>
+                    <input type="hidden" name="time" value="${defaultTime}" required>
+                    <div class="request-time-picker"></div>
+                </div>
 
-                <label class="dialog-field">
-                    <span>Message (optional)</span>
-                    <textarea name="message" rows="3" placeholder="Add a note..."></textarea>
-                </label>
-
-                <p class="dialog-error" hidden></p>
+                <div class="dialog-field dialog-field--message">
+                    <span class="dialog-label">Message (optional)</span>
+                    <textarea name="message" class="request-message-input" rows="4" placeholder="Add a note…"></textarea>
+                </div>
 
                 <footer class="dialog-footer">
-                    <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
-                    <button type="submit" class="primary-button press">Send request</button>
+                    <div class="requesting-preview" aria-live="polite">
+                        <span class="requesting-preview-label">Requesting</span>
+                        <span class="requesting-preview-value" data-requesting-time></span>
+                    </div>
+                    <button type="submit" class="primary-button press request-send-btn">Send request</button>
                 </footer>
             </form>
         `,
     });
 
     const form = dialog.querySelector('.dialog-form');
-    const errEl = form.querySelector('.dialog-error');
     const dateInput = form.querySelector('input[name="date"]');
-    const timeSelect = form.querySelector('select[name="time"]');
+    const timeInput = form.querySelector('input[name="time"]');
+    const dateWarning = form.querySelector('#request-date-warning');
+    const requestingTime = form.querySelector('[data-requesting-time]');
     const calendarHost = form.querySelector('.request-picker-calendar');
+    const timePickerHost = form.querySelector('.request-time-picker');
+    const submitBtn = form.querySelector('.request-send-btn');
 
-    buildRequestTimeOptions(timeSelect);
-    timeSelect.value = defaultTime;
+    const syncSubmit = () => {
+        const valid = isFutureDateTime(dateInput.value, timeInput.value);
+        submitBtn.disabled = !valid;
+        requestingTime.textContent = valid
+            ? `${formatShortDate(dateInput.value)} at ${formatClockTime(timeInput.value)}`
+            : '';
+    };
+
+    const setDateWarning = (msg) => {
+        dateWarning.textContent = msg || '';
+        dateWarning.style.opacity = msg ? '1' : '0';
+    };
 
     const calendar = createCalendar(calendarHost, {
         mode: 'picker',
         view: 'month',
-        onSelect: (date) => { dateInput.value = date; },
+        onSelect: (date) => {
+            dateInput.value = date;
+            if (date < todayYmd()) {
+                setDateWarning('Choose today or a future date.');
+                syncSubmit();
+                return;
+            }
+            setDateWarning('');
+            syncSubmit();
+        },
     });
     calendar.setSelected(defaultDate);
     calendar.goto(defaultDate);
+    const timePicker = createTimePicker(timePickerHost, {
+        value: defaultTime,
+        onChange: (next) => {
+            timeInput.value = next;
+            syncSubmit();
+        },
+    });
+    dialog.addEventListener('close', () => timePicker?.destroy(), { once: true });
+
+    if (defaultDate >= todayYmd()) setDateWarning('');
+    else setDateWarning('Choose today or a future date.');
+    syncSubmit();
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -99,14 +128,11 @@ const openRequestDialog = (ownerId) => {
         if (viewer?.role !== 'student') return;
 
         const date = dateInput.value;
-        const time = timeSelect.value;
+        const time = timeInput.value;
         const message = form.elements.message.value.trim();
-        if (!date || !time) return;
+        if (!isFutureDateTime(date, time)) return;
 
-        const submitBtn = form.querySelector('button[type="submit"]');
         submitBtn.disabled = true;
-        errEl.hidden = true;
-        errEl.textContent = '';
 
         try {
             await apiFetch('/requests', {
@@ -116,9 +142,13 @@ const openRequestDialog = (ownerId) => {
             requestDialogClose(dialog);
             showToast({ content: '<span>Meeting request sent</span>', timeout: 2000 });
         } catch (err) {
-            errEl.textContent = err.message || 'Could not send request.';
-            errEl.hidden = false;
+            showToast({
+                content: `<span>${escapeHtml(err.message || 'Could not send request.')}</span>`,
+                variant: 'error',
+                timeout: 4500,
+            });
             submitBtn.disabled = false;
+            syncSubmit();
         }
     });
 
@@ -142,7 +172,7 @@ const renderContent = (data, viewer) => {
     const headerHtml = `
         <div class="booking-header">
             <div class="booking-heading">
-                <span class="prof-avatar">${initialFromEmail(owner.email)}</span>
+                <span class="prof-avatar">${initialsFromEmail(owner.email)}</span>
                 <div class="booking-heading-meta">
                     <span class="booking-heading-label">${isOwnerViewing ? 'Your slots' : 'Book with'}</span>
                     <a class="booking-heading-email" href="mailto:${encodeURIComponent(owner.email)}" title="Email ${escapeHtml(owner.email)}">
@@ -159,7 +189,7 @@ const renderContent = (data, viewer) => {
     `;
 
     const requestBtn = isStudent
-        ? `<button type="button" class="primary-button-ghost press" data-action="request-meeting" data-owner-id="${owner.id}">Request a meeting</button>`
+        ? `<div class="booking-request-wrap"><button type="button" class="booking-request-btn press" data-action="request-meeting" data-owner-id="${owner.id}"><svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#calendar-days" /></svg><span>Request a meeting</span></button></div>`
         : '';
 
     if (!slots.length) {

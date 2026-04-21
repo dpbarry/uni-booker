@@ -1,9 +1,30 @@
-import { APP_TITLE, authKey, entryMs, initTheme, pendingInviteKey, signOutAnimateKey } from './global.js';
+import {
+    APP_TITLE,
+    authKey,
+    entryMs,
+    getAllUsers,
+    initTheme,
+    pendingInviteKey,
+    signOutAnimateKey,
+    userKey,
+    usersKey,
+} from './global.js';
 import { ensureAuthPage } from './auth.js';
 import { ensureMainPage, getAppView } from './main.js';
 import { openBookingDialog } from './invite-booking.js';
 
 const pageContainer = document.getElementById('page-container');
+
+const applyDemoAccounts = () => {
+    if (getAllUsers().length > 0) return;
+    const demo = [
+        { id: 1, email: 'prof@mcgill.ca', role: 'owner' },
+        { id: 2, email: 'student@mail.mcgill.ca', role: 'student' },
+    ];
+    sessionStorage.setItem(usersKey, JSON.stringify(demo));
+    sessionStorage.setItem(userKey, JSON.stringify(demo[0]));
+    sessionStorage.setItem(authKey, '1');
+};
 
 const state = {
   busy: false,
@@ -144,6 +165,7 @@ initTheme();
 window.addEventListener('hashchange', runRoute);
 
 (async () => {
+  applyDemoAccounts();
   try {
     if (isAuthed()) await ensureMainPage(pageContainer);
     else await ensureAuthPage(pageContainer, onSignIn);
