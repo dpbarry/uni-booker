@@ -132,6 +132,49 @@ app.post("/slots/create", (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
+app.post("/slots/recurring", (req, res) => {
+  const { owner_id, days, time, start_date, weeks } = req.body;
+
+  if (!owner_id || !Array.isArray(days) || !days.length || !time || !start_date || !weeks)
+    return res.status(400).json({ error: "Missing fields" });
+  
+  if (weeks < 1 || weeks > 52)
+    return res.status(400).json({ error: "Invalid Number of Weeks selected" });
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const toYmd = (d) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  
+  const [sy, sm, sd] = start_date.split("-").map(Number);
+  const anchorDate = new Date(sy, sm - 1, sd);
+
+  const insertSlot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, 'recurring', 1, ?)");
+
+  const insertMany = db.transaction(() => {
+    const slots = [];
+
+    const anchorDay = anchorDate.getDay();    
+    for (let week = 0; week < weeks; week++) {
+      for (let day of days) {
+        const daysOffset = week * 7 + (day - anchorDay);
+        const slotDate = new Date(anchorDate);
+        slotDate.setDate(slotDate.getDate() + daysOffset);
+
+        const dateStr = toYmd(slotDate);
+        if (!isPast(dateStr, time)) {
+          const result = insertSlot.run(owner_id, dateStr, time, nowIso());
+          slots.push(result.lastInsertRowid);
+        }
+      }
+    }
+
+    return slots;
+  });
+
+  const created = insertMany();
+  res.json({ created: created.length, ids: created });
+});
+
 app.get("/slots", (_req, res) => {
   res.json(db.prepare("SELECT * FROM slots").all());
 });
