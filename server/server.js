@@ -141,6 +141,9 @@ app.post("/slots/recurring", (req, res) => {
   if (weeks < 1 || weeks > 52)
     return res.status(400).json({ error: "Invalid Number of Weeks selected" });
 
+  if (!days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6))
+    return res.status(400).json({ error: "days must be integers 0–6 (Sun=0 … Sat=6)" });
+
   const pad = (n) => String(n).padStart(2, "0");
   const toYmd = (d) =>
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

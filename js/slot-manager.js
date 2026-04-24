@@ -9,6 +9,9 @@ import { escapeHtml, formatClockTime, formatShortDate, toHm, toYmd } from './for
 let slotPickerCalendar = null;
 let slotTimePicker = null;
 
+let recurringPickerCalendar = null;
+let recurringTimePicker = null;
+
 const nextSlotDateTime = () => {
     const d = new Date();
     d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
@@ -27,6 +30,7 @@ const loadOwnerSlots = async (ownerId) => {
 
 const ensureSlotDialogPicker = (dialogEl) => {
     if (!dialogEl) return;
+    
     const calendarHost = dialogEl.querySelector('.slot-picker-calendar');
     const dateInput = dialogEl.querySelector('input[name="date"]');
     const timeInput = dialogEl.querySelector('input[name="time"]');
@@ -64,6 +68,57 @@ const resetSlotDialogForm = (dialogEl) => {
     slotTimePicker?.setValue(timeInput.value, { silent: true });
     slotPickerCalendar?.setSelected(date);
     slotPickerCalendar?.goto(date);
+    err.hidden = true;
+    err.textContent = '';
+};
+
+const ensureRecurringDialogPicker = (dialogEl) => {
+    if (!dialogEl) return;
+
+    const timeInput = dialogEl.querySelector('input[name="time"]');
+    const dateInput = dialogEl.querySelector('input[name="start_date"]');
+    const timePickerHost = dialogEl.querySelector('.recurring-time-picker');
+    const calendarHost = dialogEl.querySelector('.recurring-picker-calendar');    
+    if (!calendarHost || !dateInput || !timeInput || !timePickerHost)return;
+
+    if (!recurringPickerCalendar) {
+        recurringPickerCalendar = createCalendar(calendarHost, {
+            mode: 'picker',
+            view: 'month',
+            onSelect: (date) => { dateInput.value = date; },
+        });
+    }
+
+    if (!recurringTimePicker) {
+        recurringTimePicker = createTimePicker(timePickerHost, {
+            value: timeInput.value || toHm(nextSlotDateTime()),
+            onChange: (next) => { timeInput.value = next; },
+        });
+    }
+};
+
+const resetRecurringDialogForm = (dialogEl) => {
+    if (!dialogEl) return;
+
+    ensureRecurringDialogPicker(dialogEl);
+    const timeInput = dialogEl.querySelector('input[name="time"]');
+    const weeksInput = dialogEl.querySelector('input[name="weeks"]');
+    const dateInput = dialogEl.querySelector('input[name="start_date"]');
+    const err = dialogEl.querySelector('.dialog-error');
+
+    const start = nextSlotDateTime();
+    const date = toYmd(start);
+
+    dateInput.value = date;
+    timeInput.value = toHm(start);
+    if (weeksInput)
+        weeksInput.value = '15'; // Reset weeks number to 15; a typical semester length at McGill
+
+    dialogEl.querySelectorAll('input[name="days"]').forEach((cb) => { cb.checked = false; });
+    recurringTimePicker?.setValue(timeInput.value, { silent: true });
+    recurringPickerCalendar?.setSelected(date);
+    recurringPickerCalendar?.goto(date);
+
     err.hidden = true;
     err.textContent = '';
 };
@@ -128,6 +183,16 @@ export const handleSlotManagerClick = async (e, { toast }) => {
         return true;
     }
 
+    const newRecurringBtn = e.target.closest('[data-action="new-recurring-slot"]');
+    if (newRecurringBtn) {
+        const dlg = document.querySelector('.recurring-slot-dialog');
+        resetRecurringDialogForm(dlg);
+        if (dlg)
+            openDialog(dlg);
+
+        return true;
+    }
+
     const user = getUser();
 
     const shareBtn = e.target.closest('[data-action="share-link"]');
@@ -172,6 +237,58 @@ export const handleSlotManagerClick = async (e, { toast }) => {
 };
 
 export const handleSlotManagerSubmit = async (e) => {
+    const recurringForm = e.target.closest('.recurring-slot-dialog .dialog-form');
+    if (recurringForm) {
+        e.preventDefault();
+
+        const user = getUser();
+        if (!user || user.role !== 'owner')
+            return true;
+
+        const time = recurringForm.elements.time?.value;
+        const weeks = Number(recurringForm.elements.weeks?.value);
+        const start_date = recurringForm.elements.start_date?.value;
+
+        const dlg = recurringForm.closest('dialog');
+        const errEl = recurringForm.querySelector('.dialog-error');
+        const days = [...recurringForm.querySelectorAll('input[name="days"]:checked')].map((cb) => Number(cb.value));
+        if (!days.length) {
+            errEl.textContent = 'Select at least one day.';
+            errEl.hidden = false;
+
+            return true;
+        }
+
+        if (!time || !start_date || !weeks)
+            return true;
+
+        const submitBtn = recurringForm.querySelector('button[type="submit"]');
+        if (submitBtn)
+            submitBtn.disabled = true;
+
+        try {
+            const result = await apiFetch('/slots/recurring', {
+                method: 'POST',
+                body: { owner_id: user.id, days, time: `${time}:00`, start_date, weeks },
+            });
+            if (dlg)
+                requestDialogClose(dlg);
+
+            await refreshOwnerSlots();
+        }
+        catch (err) {
+            if (errEl) {
+                errEl.textContent = err.message || 'Failed to create recurring slots';
+                errEl.hidden = false;
+            }
+        } 
+        finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+
+        return true;
+    }
+
     const form = e.target.closest('.slot-dialog .dialog-form');
     if (!form) return false;
     e.preventDefault();

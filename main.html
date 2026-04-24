@@ -43,6 +43,9 @@
                             <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#link" /></svg>
                             <span>Share link</span>
                         </button>
+                        <button type="button" class="ghost-button press" data-action="new-recurring-slot">
+                            <span>Recurring</span>
+                        </button>
                         <button type="button" class="primary-button press" data-action="new-slot">
                             <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#plus" /></svg>
                             <span>New slot</span>
@@ -115,6 +118,54 @@
                 <footer class="dialog-footer">
                     <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
                     <button type="submit" class="primary-button press">Create slot</button>
+                </footer>
+            </form>
+        </dialog>
+        
+        <dialog class="ui-dialog recurring-slot-dialog">
+            <form class="dialog-form" data-form="new-recurring-slot">
+                <header class="dialog-header">
+                    <h2 class="dialog-title">Create Recurring Office Hours</h2>
+                    <button type="button" class="icon-button press" data-action="close-dialog" title="Close">
+                        <svg width="18" height="18" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
+                    </button>
+                </header>
+
+                <label class="dialog-field">
+                    <span>Repeats on</span>
+                    <div class="weekday-checkboxes">
+                        <label class="weekday-label"><input type="checkbox" name="days" value="1"> Mon</label>
+                        <label class="weekday-label"><input type="checkbox" name="days" value="2"> Tue</label>
+                        <label class="weekday-label"><input type="checkbox" name="days" value="3"> Wed</label>
+                        <label class="weekday-label"><input type="checkbox" name="days" value="4"> Thu</label>
+                        <label class="weekday-label"><input type="checkbox" name="days" value="5"> Fri</label>
+                        <label class="weekday-label"><input type="checkbox" name="days" value="6"> Sat</label>
+                        <label class="weekday-label"><input type="checkbox" name="days" value="0"> Sun</label>
+                    </div>
+                </label>
+
+                <label class="dialog-field">
+                    <span>Time</span>
+                    <input type="hidden" name="time" required>
+                    <div class="recurring-time-picker"></div>
+                </label>
+
+                <label class="dialog-field">
+                    <span>Starting from</span>
+                    <input type="hidden" name="start_date" required>
+                    <div class="recurring-picker-calendar"></div>
+                </label>
+
+                <label class="dialog-field">
+                    <span>Number of weeks</span>
+                    <input type="number" name="weeks" min="1" max="52" value="13" class="dialog-input" required>
+                </label>
+
+                <p class="dialog-error" hidden></p>
+
+                <footer class="dialog-footer">
+                    <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
+                    <button type="submit" class="primary-button press">Create slots</button>
                 </footer>
             </form>
         </dialog>
