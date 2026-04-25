@@ -611,3 +611,18 @@
   .card-wide,
   .card-full { grid-column: 1; }
 }
+
+
+.card-full {
+    grid-row: 1 / -1;
+}
+
+.card-polls {
+    overflow-y: auto;
+    max-height: 22rem;
+}
+
+.card-slots,
+.card-full {
+    flex-shrink: 0;
+}
