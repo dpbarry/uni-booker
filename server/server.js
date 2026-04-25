@@ -137,7 +137,7 @@ app.post("/slots/recurring", (req, res) => {
 
   if (!owner_id || !Array.isArray(days) || !days.length || !time || !start_date || !weeks)
     return res.status(400).json({ error: "Missing fields" });
-  
+
   if (weeks < 1 || weeks > 52)
     return res.status(400).json({ error: "Invalid Number of Weeks selected" });
 
@@ -147,7 +147,7 @@ app.post("/slots/recurring", (req, res) => {
   const pad = (n) => String(n).padStart(2, "0");
   const toYmd = (d) =>
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  
+
   const [sy, sm, sd] = start_date.split("-").map(Number);
   const anchorDate = new Date(sy, sm - 1, sd);
 
@@ -156,7 +156,7 @@ app.post("/slots/recurring", (req, res) => {
   const insertMany = db.transaction(() => {
     const slots = [];
 
-    const anchorDay = anchorDate.getDay();    
+    const anchorDay = anchorDate.getDay();
     for (let week = 0; week < weeks; week++) {
       for (let day of days) {
         const daysOffset = week * 7 + (day - anchorDay);
@@ -421,30 +421,30 @@ app.get("/upcoming/:userId", (req, res) => {
 app.post("/requests", async (req, res) => {
   const { student_id, owner_id, date, time, message } = req.body;
   if (!student_id || !owner_id || !date || !time)
-    return res.status(400).json({error: "Missing fields"});
+    return res.status(400).json({ error: "Missing fields" });
 
   if (isPast(date, time))
-    return res.status(400).json({error: "Cannot request a time in the past"});
+    return res.status(400).json({ error: "Cannot request a time in the past" });
 
   const student = db.prepare("SELECT id, email FROM users WHERE id = ?").get(student_id);
   if (!student)
-    return res.status(404).json({error: "Student not found"});
+    return res.status(404).json({ error: "Student not found" });
 
   const owner = db.prepare("SELECT id, email FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
   if (!owner)
-    return res.status(404).json({error: "Professor not found"});
+    return res.status(404).json({ error: "Professor not found" });
 
   const result = db.prepare("INSERT INTO requests (student_id, owner_id, date, time, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(student_id, owner_id, date, time, message ?? null, "pending", nowIso());
 
   await mail.notifyMeetingRequested({ to: owner.email, studentEmail: student.email, date, time });
 
-  res.json({id: result.lastInsertRowid});
+  res.json({ id: result.lastInsertRowid });
 });
 
 app.get("/requests/owner/:ownerId", (req, res) => {
   const rows = db.prepare(
-      `
+    `
     SELECT r.id, r.date, r.time, r.message, r.status, r.created_at,
            u.email AS student_email
     FROM requests r
@@ -452,25 +452,25 @@ app.get("/requests/owner/:ownerId", (req, res) => {
     WHERE r.owner_id = ? AND r.status = 'pending'
     ORDER BY r.date ASC, r.time ASC
   `,
-    ).all(req.params.ownerId);
+  ).all(req.params.ownerId);
 
   res.json(rows);
 });
 
 app.patch("/requests/:id", async (req, res) => {
   const { status } = req.body;
-  if (status !== "accepted" && status !== "declined") 
+  if (status !== "accepted" && status !== "declined")
     return res.status(400).json({ error: "status must be accepted or declined" });
-  
+
   const request = db.prepare(
-      `
+    `
     SELECT r.*, u_student.email AS student_email, u_owner.email AS owner_email
     FROM requests r
     JOIN users u_student ON u_student.id = r.student_id
     JOIN users u_owner   ON u_owner.id   = r.owner_id
     WHERE r.id = ? AND r.status = 'pending'
   `,
-    ).get(req.params.id);
+  ).get(req.params.id);
 
   if (!request)
     return res.status(404).json({ error: "Request not found or already resolved" });
@@ -492,7 +492,7 @@ app.patch("/requests/:id", async (req, res) => {
       date: request.date,
       time: request.time,
     });
-  } 
+  }
   else {
     db.prepare("UPDATE requests SET status = 'declined' WHERE id = ?").run(request.id);
 
@@ -510,9 +510,187 @@ app.patch("/requests/:id", async (req, res) => {
 app.delete("/requests/:id", (req, res) => {
   const result = db.prepare("DELETE FROM requests WHERE id = ?").run(req.params.id);
   if (result.changes === 0)
-    return res.status(404).json({error: "Request not found"});
+    return res.status(404).json({ error: "Request not found" });
 
   res.json({ message: "Request deleted" });
+});
+
+//
+app.post('/group-polls', async (req, res) => {
+  const owner_id = req.body.owner_id;
+  const title = req.body.title;
+  const slots = req.body.slots;
+  const invitees = req.body.invitees;
+
+  if (!owner_id || !title || !slots || slots.length === 0 || !invitees || invitees.length === 0)
+    return res.status(400).json({ error: 'Missing fields' });
+
+  const owner = db.prepare("SELECT id, email FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
+  if (!owner) return res.status(404).json({ error: 'Owner not found' });
+
+  const poll = db.prepare(
+    "INSERT INTO group_polls (owner_id, title, status, created_at) VALUES (?, ?, 'open', ?)"
+  ).run(owner_id, title, nowIso());
+  const pollId = poll.lastInsertRowid;
+
+  for (const s of slots) {
+    db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)").run(pollId, s.date, s.time);
+  }
+
+  for (const email of invitees) {
+    const token = crypto.randomBytes(16).toString('base64url');
+    db.prepare("INSERT INTO group_poll_invites (poll_id, email, token) VALUES (?, ?, ?)").run(pollId, email, token);
+  }
+
+  const invites = db.prepare("SELECT email, token FROM group_poll_invites WHERE poll_id = ?").all(pollId);
+  for (const inv of invites) {
+    await mail.notifyPollInvite({ to: inv.email, ownerEmail: owner.email, title, token: inv.token });
+  }
+
+  res.json({ id: pollId });
+});
+
+app.get('/group-polls/owner/:ownerId', (req, res) => {
+  const polls = db.prepare(
+    "SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC"
+  ).all(req.params.ownerId);
+
+  const result = [];
+  for (const poll of polls) {
+    const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
+    const slotsWithCounts = [];
+    for (const slot of slots) {
+      const countRow = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
+      slotsWithCounts.push({
+        id: slot.id,
+        poll_id: slot.poll_id,
+        date: slot.date,
+        time: slot.time,
+        vote_count: countRow.count
+      });
+    }
+    result.push({
+      id: poll.id,
+      owner_id: poll.owner_id,
+      title: poll.title,
+      status: poll.status,
+      created_at: poll.created_at,
+      slots: slotsWithCounts
+    });
+  }
+
+  res.json(result);
+});
+
+app.get('/group-polls/vote/:token', (req, res) => {
+  const invite = db.prepare("SELECT * FROM group_poll_invites WHERE token = ?").get(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invalid link' });
+
+  const poll = db.prepare(
+    "SELECT p.*, u.email AS owner_email FROM group_polls p JOIN users u ON u.id = p.owner_id WHERE p.id = ?"
+  ).get(invite.poll_id);
+  if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+  const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
+
+  const myVotesRaw = db.prepare(
+    "SELECT poll_slot_id FROM group_poll_votes WHERE voter_email = ? AND poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)"
+  ).all(invite.email, poll.id);
+  const myVotes = [];
+  for (const v of myVotesRaw) {
+    myVotes.push(v.poll_slot_id);
+  }
+
+  res.json({ poll, slots, myVotes, voterEmail: invite.email });
+});
+
+app.post('/group-polls/vote/:token', (req, res) => {
+  const invite = db.prepare("SELECT * FROM group_poll_invites WHERE token = ?").get(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invalid link' });
+
+  const poll = db.prepare("SELECT * FROM group_polls WHERE id = ?").get(invite.poll_id);
+  if (!poll || poll.status !== 'open') return res.status(400).json({ error: 'Poll is closed' });
+
+  const slot_ids = req.body.slot_ids || [];
+
+  const pollSlots = db.prepare("SELECT id FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
+  for (const s of pollSlots) {
+    db.prepare("DELETE FROM group_poll_votes WHERE voter_email = ? AND poll_slot_id = ?").run(invite.email, s.id);
+  }
+
+  for (const slotId of slot_ids) {
+    db.prepare("INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_email) VALUES (?, ?)").run(slotId, invite.email);
+  }
+
+  res.json({ message: 'Votes saved' });
+});
+
+app.post('/group-polls/:id/finalize', async (req, res) => {
+  const slot_id = req.body.slot_id;
+  const weeks = req.body.weeks;
+
+  if (!slot_id) return res.status(400).json({ error: 'Missing slot_id' });
+
+  const poll = db.prepare(
+    "SELECT p.*, u.email AS owner_email FROM group_polls p JOIN users u ON u.id = p.owner_id WHERE p.id = ?"
+  ).get(req.params.id);
+  if (!poll || poll.status !== 'open') return res.status(400).json({ error: 'Poll not found or already closed' });
+
+  const chosenSlot = db.prepare("SELECT * FROM group_poll_slots WHERE id = ? AND poll_id = ?").get(slot_id, poll.id);
+  if (!chosenSlot) return res.status(404).json({ error: 'Slot not found' });
+
+  const voterRows = db.prepare(
+    "SELECT DISTINCT voter_email FROM group_poll_votes WHERE poll_slot_id = ?"
+  ).all(slot_id);
+  const voters = [];
+  for (const row of voterRows) {
+    voters.push(row.voter_email);
+  }
+
+  let repeatWeeks = Number(weeks) || 1;
+  if (repeatWeeks < 1) repeatWeeks = 1;
+  if (repeatWeeks > 26) repeatWeeks = 26;
+
+  for (let w = 0; w < repeatWeeks; w++) {
+    const d = new Date(`${chosenSlot.date}T${chosenSlot.time}`);
+    d.setDate(d.getDate() + w * 7);
+    const date = d.toISOString().slice(0, 10);
+    const time = chosenSlot.time;
+
+    const newSlot = db.prepare(
+      "INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, 'group', 1, ?)"
+    ).run(poll.owner_id, date, time, nowIso());
+
+    for (const email of voters) {
+      const student = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+      if (student) {
+        db.prepare("INSERT OR IGNORE INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(student.id, newSlot.lastInsertRowid, nowIso());
+      }
+    }
+  }
+
+  db.prepare("UPDATE group_polls SET status = 'closed' WHERE id = ?").run(poll.id);
+
+  for (const email of voters) {
+    await mail.notifyPollFinalized({ to: email, ownerEmail: poll.owner_email, title: poll.title, date: chosenSlot.date, time: chosenSlot.time, weeks: repeatWeeks });
+  }
+
+  res.json({ message: 'Poll finalized' });
+});
+
+//
+
+
+app.delete('/group-polls/:id', (req, res) => {
+  const poll = db.prepare("SELECT id FROM group_polls WHERE id = ?").get(req.params.id);
+  if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+  db.prepare("DELETE FROM group_poll_votes WHERE poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)").run(req.params.id);
+  db.prepare("DELETE FROM group_poll_slots WHERE poll_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM group_poll_invites WHERE poll_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM group_polls WHERE id = ?").run(req.params.id);
+
+  res.json({ message: 'Poll deleted' });
 });
 
 

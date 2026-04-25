@@ -20,6 +20,7 @@ import { escapeHtml, initialsFromEmail } from './format.js';
 import { handleSlotManagerClick, handleSlotManagerSubmit, refreshOwnerSlots } from './slot-manager.js';
 import { handleBookingManagerClick, refreshDiscoverProfs, refreshPinnedProfs } from './booking-manager.js';
 import { refreshNotifications, openNotificationsDialog } from './notifications.js';
+import { handlePollManagerClick, refreshOwnerPolls } from './group-poll-manager.js';
 
 const UPCOMING_VIEW_KEY = 'uni-booker-upcoming-view';
 const UPCOMING_VIEWS = ['month', 'week'];
@@ -42,6 +43,7 @@ const rehydrateDbData = async () => {
         const jobs = [refreshUpcoming(), rehydrateBookingViews()];
         if (user.role === 'owner') {
             jobs.push(refreshOwnerSlots());
+            jobs.push(refreshOwnerPolls()); //
             jobs.push(refreshNotifications());
         }
         await Promise.all(jobs);
@@ -327,6 +329,7 @@ const bindAppActions = () => {
         }
 
         if (await handleSlotManagerClick(e, { toast })) return;
+        if (await handlePollManagerClick(e, { toast })) return; //
         if (await handleBookingManagerClick(e, { toast })) return;
 
         const cancelUp = e.target.closest('[data-action="cancel-upcoming"]');
@@ -362,6 +365,7 @@ const refreshCards = async (user) => {
     if (!user) return;
     if (user.role === 'owner') {
         await refreshOwnerSlots();
+        await refreshOwnerPolls();
     } else if (user.role === 'student') {
         const pinnedIds = await refreshPinnedProfs();
         await refreshDiscoverProfs(pinnedIds);

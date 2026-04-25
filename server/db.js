@@ -46,6 +46,39 @@ db.exec(`
   time TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS group_polls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT DEFAULT 'open',
+    created_at TEXT,
+    FOREIGN KEY (owner_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS group_poll_slots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    FOREIGN KEY (poll_id) REFERENCES group_polls(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS group_poll_votes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_slot_id INTEGER NOT NULL,
+    voter_email TEXT NOT NULL,
+    UNIQUE(poll_slot_id, voter_email),
+    FOREIGN KEY (poll_slot_id) REFERENCES group_poll_slots(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS group_poll_invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id INTEGER NOT NULL,
+    email TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (poll_id) REFERENCES group_polls(id)
+  );
+
   CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot_unique ON bookings(slot_id);
 `);
 
