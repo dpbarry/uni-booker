@@ -75,3 +75,22 @@ exports.notifyRequestDeclined = ({ to, ownerEmail, date, time }) =>
     subject: "Your meeting request was declined",
     text: `${ownerEmail} declined your meeting request for ${whenLabel(date, time)}.`,
   });
+
+
+
+exports.notifyPollInvite = ({ to, ownerEmail, title, token }) =>
+  send({
+    to,
+    subject: `You're invited to vote: ${title}`,
+    text: `${ownerEmail} invited you to pick a meeting time for "${title}".\n\nClick the link below to vote:\n${process.env.APP_URL || 'http://localhost:3000'}/#/poll/${token}`,
+  });
+
+exports.notifyPollFinalized = ({ to, ownerEmail, title, date, time, weeks }) => {
+  const weekText = weeks > 1 ? ` (repeats for ${weeks} weeks)` : '';
+  return send({
+    to,
+    subject: `Meeting time confirmed: ${title}`,
+    text: `${ownerEmail} selected a time for "${title}".\n\nDate: ${date} at ${String(time).slice(0, 5)}${weekText}`,
+  });
+};
+
