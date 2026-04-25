@@ -8,6 +8,7 @@ export const usersKey = 'uni-booker-users';
 export const signOutAnimateKey = 'uni-booker-signout-animate';
 export const themeKey = 'uni-booker-theme';
 export const pendingInviteKey = 'uni-booker-pending-invite';
+export const pendingPollKey = 'pending_poll';
 
 export class ApiError extends Error {
     constructor(message, status) {
