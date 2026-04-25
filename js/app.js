@@ -5,6 +5,7 @@ import {
     getAllUsers,
     initTheme,
     pendingInviteKey,
+    pendingPollKey, //
     signOutAnimateKey,
     userKey,
     usersKey,
@@ -12,6 +13,7 @@ import {
 import { ensureAuthPage } from './auth.js';
 import { ensureMainPage, getAppView } from './main.js';
 import { openBookingDialog } from './invite-booking.js';
+import { openPollPage } from './group-poll.js';
 
 const pageContainer = document.getElementById('page-container');
 
@@ -35,6 +37,12 @@ const isAuthed = () => sessionStorage.getItem(authKey) === '1';
 
 const onSignIn = () => {
   state.animateNextEntry = true;
+  const pendingPoll = sessionStorage.getItem(pendingPollKey);
+  if (pendingPoll) {
+    sessionStorage.removeItem(pendingPollKey);
+    location.replace(`#/poll/${pendingPoll}`);
+    return;
+  }
   const pending = sessionStorage.getItem(pendingInviteKey);
   if (pending) {
     sessionStorage.removeItem(pendingInviteKey);
@@ -47,6 +55,7 @@ const onSignIn = () => {
 const showTopPage = (which) => {
   document.getElementById('view-app')?.toggleAttribute('hidden', which !== 'app');
   document.getElementById('view-invite')?.toggleAttribute('hidden', which !== 'invite');
+  document.getElementById('view-poll')?.toggleAttribute('hidden', which !== 'poll');
 };
 
 async function enterMainPage() {
@@ -91,6 +100,22 @@ async function enterInvitePage(token) {
   }
 }
 
+async function enterPollPage(token) {
+  state.busy = true;
+  state.animateNextEntry = false;
+  try {
+    await ensureMainPage(pageContainer);
+    showTopPage('poll');
+    const pollView = document.getElementById('view-poll');
+    if (pollView) pollView.classList.add('is-visible');
+    document.documentElement.classList.remove('first-paint-main');
+    document.getElementById('view-auth')?.remove();
+    await openPollPage(token);
+  } finally {
+    state.busy = false;
+  }
+}
+
 const route = async () => {
   document.title = APP_TITLE;
   if (state.busy) return;
@@ -98,9 +123,17 @@ const route = async () => {
   const inviteMatch = /^#\/invite\/(.+)$/.exec(location.hash);
   const inviteToken = inviteMatch ? decodeURIComponent(inviteMatch[1]) : null;
 
+  const pollMatch = /^#\/poll\/(.+)$/.exec(location.hash);
+  const pollToken = pollMatch ? decodeURIComponent(pollMatch[1]) : null;
+
   if (!isAuthed()) {
     if (inviteToken) {
       sessionStorage.setItem(pendingInviteKey, inviteToken);
+      location.replace('#/signin');
+      return;
+    }
+    if (pollToken) {
+      sessionStorage.setItem(pendingPollKey, pollToken);
       location.replace('#/signin');
       return;
     }
@@ -141,6 +174,11 @@ const route = async () => {
     return;
   }
 
+  if (pollToken) {
+    await enterPollPage(pollToken);
+    return;
+  }
+
   if (location.hash && location.hash !== '#/') {
     location.replace('#/');
     return;
@@ -153,7 +191,6 @@ const route = async () => {
     showTopPage('app');
   }
 };
-
 const failHard = (error) => {
   pageContainer.textContent = 'Failed to load UI.';
   console.error(error);
