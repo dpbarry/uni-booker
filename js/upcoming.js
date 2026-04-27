@@ -86,9 +86,8 @@ export const refreshUpcoming = async () => {
     } catch (err) {
         console.error('Failed to load upcoming:', err);
     }
-    const safeRows = Array.isArray(rows) ? rows : [];
-    renderList(safeRows);
-    calendar?.setEvents(toEvents(safeRows));
+    renderList(rows);
+    calendar?.setEvents(toEvents(rows));
 };
 
 export const mountUpcoming = async (view) => {
@@ -98,10 +97,4 @@ export const mountUpcoming = async (view) => {
     ensureCalendar(el);
     calendar?.setView(currentView);
     await refreshUpcoming();
-};
-
-export const destroyUpcoming = () => {
-    calendar?.destroy();
-    calendar = null;
-    calendarHost = null;
 };

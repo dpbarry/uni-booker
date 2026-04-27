@@ -1,9 +1,52 @@
-import { API_BASE, AUTH_PAGE_URL, appendPage, authKey, loadPage, setUser, syncThemeToggleTitles } from './global.js';
+import {
+    API_BASE,
+    appendPage,
+    AUTH_PAGE_URL,
+    authKey,
+    getAllUsers,
+    getUser,
+    loadPage,
+    setUser,
+    syncThemeToggleTitles,
+} from './global.js';
+import { escapeHtml, initialsFromEmail } from './format.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 let formBound = false;
 
-export const ensureAuthPage = async (pageContainer, onSignIn, { append = false } = {}) => {
+const renderSavedAccounts = (onSignIn) => {
+    const wrap = document.getElementById('auth-accounts');
+    if (!wrap) return;
+    const users = getAllUsers();
+    if (users.length < 1) {
+        wrap.hidden = true;
+        wrap.innerHTML = '';
+        return;
+    }
+    const currentEmail = getUser()?.email ?? null;
+    wrap.hidden = false;
+    wrap.innerHTML = `<div class="auth-accounts-inner">${users
+        .map((u) => {
+            const emailAttr = escapeHtml(u.email);
+            const initials = escapeHtml(initialsFromEmail(u.email));
+            const isCurrent = currentEmail === u.email;
+            return `<button type="button" class="auth-account-chip press${isCurrent ? ' is-current' : ''}" data-email="${emailAttr}" aria-label="Sign in as ${emailAttr}" title="${emailAttr}">${initials}</button>`;
+        })
+        .join('')}</div>`;
+
+    wrap.onclick = (e) => {
+        const btn = e.target.closest('.auth-account-chip');
+        if (!btn || !wrap.contains(btn)) return;
+        const email = btn.dataset.email;
+        const target = getAllUsers().find((x) => x.email === email);
+        if (!target) return;
+        setUser(target);
+        sessionStorage.setItem(authKey, '1');
+        onSignIn();
+    };
+};
+
+export const ensureAuthPage = async (pageContainer, onSignIn, {append = false} = {}) => {
     if (!document.getElementById('view-auth')) {
         if (append) {
             await appendPage(pageContainer, AUTH_PAGE_URL);
@@ -22,119 +65,80 @@ export const ensureAuthPage = async (pageContainer, onSignIn, { append = false }
 
         const emailInput = document.getElementById('auth-email');
         const passwordInput = document.getElementById('auth-password');
-        const signinBtn = document.getElementById('auth-signin-button');
         const registerBtn = document.getElementById('auth-register-button');
 
         const setError = (fieldId, msg) => {
             const input = document.getElementById(fieldId);
             const warning = document.getElementById(`warning-${fieldId}`);
-            if (input) input.classList.add('has-error');
-            if (warning) {
-                warning.textContent = msg || '';
-                warning.style.opacity = msg ? '1' : '0';
+            input.classList.toggle('has-error', Boolean(msg));
+            warning.textContent = msg || '';
+            warning.style.opacity = msg ? '1' : '0';
+        };
+
+        const clearErrorOnInput = (e) => setError(e.target.id, '');
+        emailInput.addEventListener('input', clearErrorOnInput);
+        passwordInput.addEventListener('input', clearErrorOnInput);
+
+        const validate = (email, password) => {
+            const lower = email.toLowerCase();
+            if (!email) {
+                setError('auth-email', 'Required');
+                return false;
             }
-        };
-
-        const clearError = (fieldId) => {
-            const input = document.getElementById(fieldId);
-            const warning = document.getElementById(`warning-${fieldId}`);
-            if (input) input.classList.remove('has-error');
-            if (warning) warning.style.opacity = '0';
-        };
-
-        const clearAllErrors = () => {
-            clearError('auth-email');
-            clearError('auth-password');
-        };
-
-        const clearWarningOnChange = (e) => {
-            clearError(e.target.id);
-        };
-
-        emailInput?.addEventListener('input', clearWarningOnChange);
-        passwordInput?.addEventListener('input', clearWarningOnChange);
-
-        const getFields = () => ({
-            email: emailInput?.value.trim(),
-            password: passwordInput?.value,
-        });
-
-        const validate = ({ email, password }) => {
-            let isValid = true;
-            if (!email) { setError('auth-email', 'Required'); isValid = false; }
-            else if (!EMAIL_RE.test(email)) { setError('auth-email', 'Invalid format'); isValid = false; }
-            else {
-                const lower = email.toLowerCase();
-                if (!lower.endsWith('@mcgill.ca') && !lower.endsWith('@mail.mcgill.ca')) {
-                    setError('auth-email', 'Use McGill email');
-                    isValid = false;
-                }
+            if (!EMAIL_RE.test(email)) {
+                setError('auth-email', 'Invalid format');
+                return false;
             }
-
-            if (!password) { setError('auth-password', 'Required'); isValid = false; }
-            return isValid;
+            if (!lower.endsWith('@mcgill.ca') && !lower.endsWith('@mail.mcgill.ca')) {
+                setError('auth-email', 'Use McGill email');
+                return false;
+            }
+            if (!password) {
+                setError('auth-password', 'Required');
+                return false;
+            }
+            return true;
         };
 
-        const handleServerErr = (msg) => {
-            const l = (msg || '').toLowerCase();
+        const showServerErr = (msg) => {
+            const l = msg.toLowerCase();
             if (l.includes('password')) setError('auth-password', msg);
-            else if (l.includes('email') || l.includes('user') || l.includes('registered')) setError('auth-email', msg);
-            else { setError('auth-email', msg); setError('auth-password', ''); }
+            else setError('auth-email', msg);
         };
 
-        const submitLogin = async () => {
-            clearAllErrors();
-            const fields = getFields();
-            if (!validate(fields)) return;
+        const submit = async (path, failMsg) => {
+            setError('auth-email', '');
+            setError('auth-password', '');
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            if (!validate(email, password)) return;
 
             try {
-                const res = await fetch(`${API_BASE}/login`, {
+                const res = await fetch(`${API_BASE}${path}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: fields.email, password: fields.password }),
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({email, password}),
                 });
                 const data = await res.json();
-                if (!res.ok) { handleServerErr(data.error || 'Sign in failed'); return; }
-
+                if (!res.ok) return showServerErr(data.error || failMsg);
                 setUser(data);
                 sessionStorage.setItem(authKey, '1');
                 onSignIn();
             } catch {
-                handleServerErr('Could not reach server');
-            }
-        };
-
-        const submitRegister = async () => {
-            clearAllErrors();
-            const fields = getFields();
-            if (!validate(fields)) return;
-
-            try {
-                const res = await fetch(`${API_BASE}/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: fields.email, password: fields.password }),
-                });
-                const data = await res.json();
-                if (!res.ok) { handleServerErr(data.error || 'Registration failed'); return; }
-
-                setUser(data);
-                sessionStorage.setItem(authKey, '1');
-                onSignIn();
-            } catch {
-                handleServerErr('Could not reach server');
+                showServerErr('Could not reach server');
             }
         };
 
         form.addEventListener('submit', (e) => {
             e.preventDefault();
-            void submitLogin();
+            void submit('/login', 'Sign in failed');
         });
 
-        registerBtn?.addEventListener('click', () => {
-            void submitRegister();
+        registerBtn.addEventListener('click', () => {
+            void submit('/register', 'Registration failed');
         });
     }
 
+    renderSavedAccounts(onSignIn);
     syncThemeToggleTitles();
 };

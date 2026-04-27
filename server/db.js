@@ -15,7 +15,8 @@ db.exec(`
     owner_id INTEGER,
     date TEXT,
     time TEXT,
-    type TEXT DEFAULT 'office_hours',
+    type TEXT DEFAULT 'onetime',
+    group_title TEXT,
     active INTEGER DEFAULT 1,
     invite_token TEXT,
     created_at TEXT
@@ -46,7 +47,40 @@ db.exec(`
   time TEXT
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot_unique ON bookings(slot_id);
+  CREATE TABLE IF NOT EXISTS group_polls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    created_at TEXT,
+    FOREIGN KEY (owner_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS group_poll_slots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    FOREIGN KEY (poll_id) REFERENCES group_polls(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS group_poll_votes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_slot_id INTEGER NOT NULL,
+    voter_id INTEGER,
+    voter_email TEXT NOT NULL,
+    UNIQUE(poll_slot_id, voter_email),
+    FOREIGN KEY (poll_slot_id) REFERENCES group_poll_slots(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS group_poll_invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id INTEGER NOT NULL,
+    email TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (poll_id) REFERENCES group_polls(id)
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot_student_unique ON bookings(slot_id, student_id);
 `);
 
 const hasColumn = (table, col) =>
@@ -57,7 +91,16 @@ const hasColumn = (table, col) =>
 
 if (!hasColumn("users", "invite_token")) db.exec("ALTER TABLE users ADD COLUMN invite_token TEXT");
 if (!hasColumn("slots", "created_at")) db.exec("ALTER TABLE slots ADD COLUMN created_at TEXT");
+if (!hasColumn("slots", "group_title")) db.exec("ALTER TABLE slots ADD COLUMN group_title TEXT");
 if (!hasColumn("bookings", "created_at")) db.exec("ALTER TABLE bookings ADD COLUMN created_at TEXT");
+if (!hasColumn("group_poll_votes", "voter_id")) db.exec("ALTER TABLE group_poll_votes ADD COLUMN voter_id INTEGER");
+
+const hasIndex = (name) =>
+  db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name);
+if (hasIndex("idx_bookings_slot_unique")) db.exec("DROP INDEX idx_bookings_slot_unique");
+if (!hasIndex("idx_bookings_slot_student_unique")) {
+  db.exec("CREATE UNIQUE INDEX idx_bookings_slot_student_unique ON bookings(slot_id, student_id)");
+}
 
 const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get().count;
 if (userCount === 0) {

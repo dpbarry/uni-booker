@@ -12,59 +12,51 @@ import {
     signOutAnimateKey,
     syncThemeToggleTitles,
 } from './global.js';
-import { registerDialog, requestDialogClose } from './dialog.js';
+import { registerDialog, requestDialogClose, closeAllDialogs } from './dialog.js';
 import { mountUpcoming, refreshUpcoming, setUpcomingView } from './upcoming.js';
 import { rehydrateBookingViews } from './invite-booking.js';
 import { showToast } from './toast.js';
-import { escapeHtml, initialFromEmail } from './format.js';
+import { escapeHtml, initialsFromEmail } from './format.js';
 import { handleSlotManagerClick, handleSlotManagerSubmit, refreshOwnerSlots } from './slot-manager.js';
 import { handleBookingManagerClick, refreshDiscoverProfs, refreshPinnedProfs } from './booking-manager.js';
 import { refreshNotifications, openNotificationsDialog } from './notifications.js';
+import { handlePollManagerClick, refreshOwnerPolls } from './group-poll-manager.js';
 
 const UPCOMING_VIEW_KEY = 'uni-booker-upcoming-view';
 const UPCOMING_VIEWS = ['month', 'week'];
-const REHYDRATE_MS = 5000;
-const normalizeUpcomingView = (view) => (UPCOMING_VIEWS.includes(view) ? view : 'month');
+const REHYDRATE_MS = 1750;
 
-const getSavedUpcomingView = () => {
-    return normalizeUpcomingView(localStorage.getItem(UPCOMING_VIEW_KEY));
-};
-
-const setSavedUpcomingView = (view) => {
-    localStorage.setItem(UPCOMING_VIEW_KEY, normalizeUpcomingView(view));
+const loadUpcomingView = () => {
+    const saved = localStorage.getItem(UPCOMING_VIEW_KEY);
+    return UPCOMING_VIEWS.includes(saved) ? saved : 'month';
 };
 
 let rehydrateTimer = null;
-let rehydrateInFlight = false;
+let rehydrateInProgress = false;
 
 const rehydrateDbData = async () => {
     const user = getUser();
     if (!user) return;
-    if (rehydrateInFlight) return;
-    rehydrateInFlight = true;
+    if (rehydrateInProgress) return;
+    rehydrateInProgress = true;
     try {
-        await apiFetch('/maintenance/cleanup-expired', { method: 'POST' });
         const jobs = [refreshUpcoming(), rehydrateBookingViews()];
         if (user.role === 'owner') {
             jobs.push(refreshOwnerSlots());
+            jobs.push(refreshOwnerPolls()); //
             jobs.push(refreshNotifications());
-            await Promise.all(jobs);
-            return;
-        }
-        if (user.role === 'student') {
-            const pinnedIds = await refreshPinnedProfs();
-            jobs.push(refreshDiscoverProfs(pinnedIds));
         }
         await Promise.all(jobs);
     } catch (err) {
         console.error('Rehydrate failed:', err);
     } finally {
-        rehydrateInFlight = false;
+        rehydrateInProgress = false;
     }
 };
 
 const startRehydrateLoop = () => {
     if (rehydrateTimer) return;
+    void rehydrateDbData();
     rehydrateTimer = setInterval(() => {
         void rehydrateDbData();
     }, REHYDRATE_MS);
@@ -73,17 +65,21 @@ const startRehydrateLoop = () => {
 const applyUpcomingView = (view) => {
     const appView = document.getElementById('view-app');
     if (!appView) return;
-    const resolved = normalizeUpcomingView(view);
     const card = appView.querySelector('.card-upcoming');
-    if (card) card.setAttribute('data-upcoming-view', resolved);
+    if (card) card.setAttribute('data-upcoming-view', view);
 
     appView.querySelectorAll('.view-switcher-option[role="tab"]').forEach((tab) => {
-        const isSelected = tab.dataset.view === resolved;
+        const isSelected = tab.dataset.view === view;
         tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
         tab.tabIndex = isSelected ? 0 : -1;
     });
 
-    setUpcomingView(resolved);
+    setUpcomingView(view);
+};
+
+const selectUpcomingView = (view) => {
+    localStorage.setItem(UPCOMING_VIEW_KEY, view);
+    applyUpcomingView(view);
 };
 
 let viewSwitcherBound = false;
@@ -94,42 +90,39 @@ const bindViewSwitcher = () => {
     if (!tablist) return;
     viewSwitcherBound = true;
 
-    applyUpcomingView(getSavedUpcomingView());
+    applyUpcomingView(loadUpcomingView());
 
     tablist.addEventListener('click', (e) => {
         const tab = e.target.closest('.view-switcher-option[role="tab"]');
         if (!tab || !tablist.contains(tab)) return;
         const view = tab.dataset.view;
-        if (!view || !UPCOMING_VIEWS.includes(view)) return;
-        setSavedUpcomingView(view);
-        applyUpcomingView(view);
+        if (!UPCOMING_VIEWS.includes(view)) return;
+        selectUpcomingView(view);
         tab.focus();
     });
 
     tablist.addEventListener('keydown', (e) => {
         const tabs = [...tablist.querySelectorAll('.view-switcher-option[role="tab"]')];
         if (!tabs.length) return;
-        const i = tabs.indexOf(document.activeElement);
-        if (e.key === 'Home' || e.key === 'End') {
-            e.preventDefault();
-            const next = e.key === 'Home' ? 0 : tabs.length - 1;
-            const view = tabs[next].dataset.view;
-            if (!view) return;
-            setSavedUpcomingView(view);
-            applyUpcomingView(view);
-            tabs[next].focus();
-            return;
+        const currentIndex = tabs.indexOf(document.activeElement);
+        let nextIndex = -1;
+
+        if (e.key === 'Home') nextIndex = 0;
+        else if (e.key === 'End') nextIndex = tabs.length - 1;
+        else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            const dir = e.key === 'ArrowRight' ? 1 : -1;
+            const from = currentIndex >= 0
+                ? currentIndex
+                : tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+            nextIndex = (from + dir + tabs.length) % tabs.length;
         }
-        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+
+        if (nextIndex < 0) return;
         e.preventDefault();
-        const dir = e.key === 'ArrowRight' ? 1 : -1;
-        const from = i >= 0 ? i : tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
-        const next = (from + dir + tabs.length) % tabs.length;
-        const view = tabs[next].dataset.view;
-        if (!view) return;
-        setSavedUpcomingView(view);
-        applyUpcomingView(view);
-        tabs[next].focus();
+        const view = tabs[nextIndex].dataset.view;
+        if (!UPCOMING_VIEWS.includes(view)) return;
+        selectUpcomingView(view);
+        tabs[nextIndex].focus();
     });
 };
 
@@ -176,7 +169,7 @@ const refreshUserUI = (user) => {
 
     const role = user && ROLES[user.role] ? user.role : 'student';
     const meta = ROLES[role];
-    const initial = initialFromEmail(user?.email, meta.initial);
+    const initial = initialsFromEmail(user?.email, meta.initial);
 
     if (appView) appView.setAttribute('data-role-view', role);
     if (inviteView) inviteView.setAttribute('data-role-view', role);
@@ -204,7 +197,7 @@ const refreshUserUI = (user) => {
     if (otherUsers.length > 0) {
         html += `<div class="account-divider"></div>`;
         otherUsers.forEach(u => {
-            const uInitial = initialFromEmail(u.email);
+            const uInitial = initialsFromEmail(u.email);
             const uMeta = ROLES[u.role] || ROLES.student;
             html += `
                 <button type="button" class="account-row account-switch" data-email="${u.email}" role="menuitem">
@@ -287,13 +280,11 @@ const bindAccountMenu = () => {
         const signout = e.target.closest('.account-signout');
         if (signout) {
             closeAllMenus();
+            closeAllDialogs();
             sessionStorage.setItem(signOutAnimateKey, '1');
             clearUser();
-            if (sessionStorage.getItem(authKey)) {
-                location.reload();
-            } else {
-                location.replace('#/signin');
-            }
+            if (!sessionStorage.getItem(authKey)) location.hash = '#/signin';
+            location.reload();
             return;
         }
 
@@ -338,6 +329,7 @@ const bindAppActions = () => {
         }
 
         if (await handleSlotManagerClick(e, { toast })) return;
+        if (await handlePollManagerClick(e, { toast })) return; //
         if (await handleBookingManagerClick(e, { toast })) return;
 
         const cancelUp = e.target.closest('[data-action="cancel-upcoming"]');
@@ -359,16 +351,13 @@ const bindAppActions = () => {
             } catch (err) {
                 toast(err.message || 'Failed to cancel', { error: true });
             }
-            return;
         }
     });
 
-    document.addEventListener('submit', async (e) => {
-        if (await handleSlotManagerSubmit(e)) return;
-    });
+    document.addEventListener('submit', handleSlotManagerSubmit);
 
-    window.addEventListener('booking-changed', async () => {
-        await rehydrateDbData();
+    window.addEventListener('booking-changed', () => {
+        void rehydrateDbData();
     });
 };
 
@@ -376,9 +365,10 @@ const refreshCards = async (user) => {
     if (!user) return;
     if (user.role === 'owner') {
         await refreshOwnerSlots();
+        await refreshOwnerPolls();
     } else if (user.role === 'student') {
         const pinnedIds = await refreshPinnedProfs();
         await refreshDiscoverProfs(pinnedIds);
     }
-    await mountUpcoming(getSavedUpcomingView());
+    await mountUpcoming(loadUpcomingView());
 };

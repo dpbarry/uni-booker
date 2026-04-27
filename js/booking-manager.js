@@ -1,11 +1,10 @@
 import { apiFetch, getUser } from './global.js';
 import { openBookingDialog } from './invite-booking.js';
-import { escapeHtml, initialFromEmail } from './format.js';
+import { escapeHtml, initialsFromEmail } from './format.js';
 
 const loadList = async (path, label) => {
     try {
-        const data = await apiFetch(path);
-        return Array.isArray(data) ? data : [];
+        return await apiFetch(path);
     } catch (err) {
         console.error(`Error loading ${label}:`, err);
         return [];
@@ -15,7 +14,7 @@ const loadList = async (path, label) => {
 const renderProfRow = (prof, pinned, clickable) => `
     <li class="prof-row" data-clickable="${clickable}">
         <button type="button" class="prof-body" data-action="open-prof" data-owner-id="${prof.id}">
-            <span class="prof-avatar">${initialFromEmail(prof.email)}</span>
+            <span class="prof-avatar">${initialsFromEmail(prof.email)}</span>
             <span class="prof-email">${escapeHtml(prof.email)}</span>
         </button>
         <button type="button" class="pin-button" data-action="toggle-pin" data-owner-id="${prof.id}" aria-pressed="${pinned}" title="${pinned ? 'Unpin' : 'Pin'}">

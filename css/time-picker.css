@@ -1,0 +1,137 @@
+.tp {
+  position: relative;
+}
+
+.tp-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-elevated));
+  color: var(--color-base);
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.tp-trigger:hover {
+  border-color: var(--color-border-strong);
+}
+
+.tp-trigger:focus-visible {
+  outline: none;
+  border-color: var(--color-accent-half);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+.tp-trigger-icon {
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.tp-bubble {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  z-index: 8;
+  width: min(26rem, 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-elevated);
+  box-shadow: 0 12px 30px hsl(220 20% 8% / 0.2), 0 2px 8px hsl(220 20% 8% / 0.15);
+  padding: 0.5rem;
+}
+
+.tp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(5.5rem, auto);
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tp-colon {
+  align-self: center;
+  font-size: 1.2rem;
+  color: var(--color-muted);
+  font-weight: 700;
+  margin-top: 0;
+}
+
+.tp-segment {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tp-spin-wrap {
+  position: relative;
+}
+
+.tp-input,
+.tp-meridiem {
+  width: 100%;
+  font: inherit;
+  color: var(--color-base);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  line-height: 1.1;
+}
+
+.tp-input {
+  padding: 0.48rem 1.55rem 0.48rem 0.5rem;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-input:focus-visible,
+.tp-meridiem:focus-visible {
+  outline: none;
+  border-color: var(--color-accent-half);
+  box-shadow: 0 0 0 3px var(--focus-shadow);
+}
+
+.tp-spin {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: 1.05rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.tp-spin-btn {
+  height: 0.68rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.2rem;
+  background: transparent;
+  color: var(--color-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.tp-spin-btn:hover {
+  background: var(--hover-bg);
+  color: var(--color-base);
+}
+
+.tp-meridiem {
+  padding: 0.52rem 0.62rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+  cursor: pointer;
+}

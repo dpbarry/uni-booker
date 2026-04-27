@@ -1,9 +1,32 @@
-import { APP_TITLE, authKey, entryMs, initTheme, pendingInviteKey, signOutAnimateKey } from './global.js';
+import {
+    APP_TITLE,
+    authKey,
+    entryMs,
+    getAllUsers,
+    initTheme,
+    pendingInviteKey,
+    pendingPollKey, //
+    signOutAnimateKey,
+    userKey,
+    usersKey,
+} from './global.js';
 import { ensureAuthPage } from './auth.js';
 import { ensureMainPage, getAppView } from './main.js';
 import { openBookingDialog } from './invite-booking.js';
+import { openPollPage } from './group-poll.js';
 
 const pageContainer = document.getElementById('page-container');
+
+const applyDemoAccounts = () => {
+    if (getAllUsers().length > 0) return;
+    const demo = [
+        { id: 1, email: 'prof@mcgill.ca', role: 'owner' },
+        { id: 2, email: 'student@mail.mcgill.ca', role: 'student' },
+    ];
+    sessionStorage.setItem(usersKey, JSON.stringify(demo));
+    sessionStorage.setItem(userKey, JSON.stringify(demo[0]));
+    sessionStorage.setItem(authKey, '1');
+};
 
 const state = {
   busy: false,
@@ -11,29 +34,28 @@ const state = {
 };
 
 const isAuthed = () => sessionStorage.getItem(authKey) === '1';
-const setHash = (hash) => location.replace(hash);
-
-const parseInviteToken = (hash) => {
-  const m = /^#\/invite\/(.+)$/.exec(hash || '');
-  return m ? decodeURIComponent(m[1]) : null;
-};
 
 const onSignIn = () => {
   state.animateNextEntry = true;
+  const pendingPoll = sessionStorage.getItem(pendingPollKey);
+  if (pendingPoll) {
+    sessionStorage.removeItem(pendingPollKey);
+    location.replace(`#/poll/${pendingPoll}`);
+    return;
+  }
   const pending = sessionStorage.getItem(pendingInviteKey);
   if (pending) {
     sessionStorage.removeItem(pendingInviteKey);
-    setHash(`#/invite/${pending}`);
+    location.replace(`#/invite/${pending}`);
     return;
   }
-  setHash('#/');
+  location.replace('#/');
 };
 
 const showTopPage = (which) => {
-  const app = document.getElementById('view-app');
-  const invite = document.getElementById('view-invite');
-  if (app) app.hidden = which !== 'app';
-  if (invite) invite.hidden = which !== 'invite';
+  document.getElementById('view-app')?.toggleAttribute('hidden', which !== 'app');
+  document.getElementById('view-invite')?.toggleAttribute('hidden', which !== 'invite');
+  document.getElementById('view-poll')?.toggleAttribute('hidden', which !== 'poll');
 };
 
 async function enterMainPage() {
@@ -78,20 +100,45 @@ async function enterInvitePage(token) {
   }
 }
 
+async function enterPollPage(token) {
+  state.busy = true;
+  state.animateNextEntry = false;
+  try {
+    await ensureMainPage(pageContainer);
+    showTopPage('poll');
+    const pollView = document.getElementById('view-poll');
+    if (pollView) pollView.classList.add('is-visible');
+    document.documentElement.classList.remove('first-paint-main');
+    document.getElementById('view-auth')?.remove();
+    await openPollPage(token);
+  } finally {
+    state.busy = false;
+  }
+}
+
 const route = async () => {
   document.title = APP_TITLE;
   if (state.busy) return;
 
-  const inviteToken = parseInviteToken(location.hash);
+  const inviteMatch = /^#\/invite\/(.+)$/.exec(location.hash);
+  const inviteToken = inviteMatch ? decodeURIComponent(inviteMatch[1]) : null;
+
+  const pollMatch = /^#\/poll\/(.+)$/.exec(location.hash);
+  const pollToken = pollMatch ? decodeURIComponent(pollMatch[1]) : null;
 
   if (!isAuthed()) {
     if (inviteToken) {
       sessionStorage.setItem(pendingInviteKey, inviteToken);
-      setHash('#/signin');
+      location.replace('#/signin');
+      return;
+    }
+    if (pollToken) {
+      sessionStorage.setItem(pendingPollKey, pollToken);
+      location.replace('#/signin');
       return;
     }
     if (location.hash !== '#/signin') {
-      setHash('#/signin');
+      location.replace('#/signin');
       return;
     }
     state.busy = true;
@@ -127,8 +174,13 @@ const route = async () => {
     return;
   }
 
+  if (pollToken) {
+    await enterPollPage(pollToken);
+    return;
+  }
+
   if (location.hash && location.hash !== '#/') {
-    setHash('#/');
+    location.replace('#/');
     return;
   }
 
@@ -139,7 +191,6 @@ const route = async () => {
     showTopPage('app');
   }
 };
-
 const failHard = (error) => {
   pageContainer.textContent = 'Failed to load UI.';
   console.error(error);
@@ -151,6 +202,7 @@ initTheme();
 window.addEventListener('hashchange', runRoute);
 
 (async () => {
+  applyDemoAccounts();
   try {
     if (isAuthed()) await ensureMainPage(pageContainer);
     else await ensureAuthPage(pageContainer, onSignIn);
