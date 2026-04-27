@@ -13,15 +13,25 @@ const renderRequests = (requests) => {
             </div>
             ${r.message ? `
             <div class="notif-request-note-wrap">
+                <span class="notif-request-note-label">Note</span>
                 <p class="notif-request-note">${escapeHtml(r.message)}</p>
             </div>
             ` : ''}
+            <label class="notif-slot-name-wrap">
+                <span class="notif-slot-name-label">Name (optional)</span>
+                <input
+                    type="text"
+                    class="notif-slot-name-input"
+                    data-slot-name-input
+                    maxlength="80"
+                />
+            </label>
             <div class="notif-request-actions">
-                <button type="button" class="notif-action-btn notif-action-accept press" data-action="accept-request" data-id="${r.id}">
+                <button type="button" class="primary-button press notif-action-btn notif-action-accept" data-action="accept-request" data-id="${r.id}">
                     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#check" /></svg>
                     <span>Accept</span>
                 </button>
-                <button type="button" class="notif-action-btn notif-action-decline press" data-action="decline-request" data-id="${r.id}">
+                <button type="button" class="primary-button-ghost press notif-action-btn notif-action-decline" data-action="decline-request" data-id="${r.id}">
                     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#x" /></svg>
                     <span>Decline</span>
                 </button>
@@ -68,10 +78,20 @@ export const openNotificationsDialog = async () => {
         if (!btn) return;
         const accepted = btn.dataset.action === 'accept-request';
         const id = Number(btn.dataset.id);
+        const row = btn.closest('.notif-request-row');
+        const slotName = accepted
+            ? String(row?.querySelector('[data-slot-name-input]')?.value || '').trim()
+            : '';
         btn.disabled = true;
 
         try {
-            await apiFetch(`/requests/${id}`, { method: 'PATCH', body: { status: accepted ? 'accepted' : 'declined' } });
+            await apiFetch(`/requests/${id}`, {
+                method: 'PATCH',
+                body: {
+                    status: accepted ? 'accepted' : 'declined',
+                    slot_name: accepted ? slotName : null,
+                },
+            });
             const updated = await apiFetch(`/requests/owner/${user.id}`);
             dialog.querySelector('.notif-request-list').innerHTML = renderRequests(updated);
             updateDot(updated.length);

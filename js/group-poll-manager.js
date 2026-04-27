@@ -1,15 +1,17 @@
 import { apiFetch, getUser } from './global.js';
-import { openDialog, requestDialogClose } from './dialog.js';
+import { openDialog, requestDialogClose, setDialogFooterError } from './dialog.js';
 import { createCalendar } from './calendar.js';
 import { createTimePicker } from './time-picker.js';
-import { formatShortDate, formatClockTime, toHm, toYmd } from './format.js';
-import { showToast } from './toast.js';
+import { escapeHtml, formatShortDate, formatClockTime, isFutureDateTime, toHm, toYmd, todayYmd } from './format.js';
+import { refreshOwnerSlots } from './slot-manager.js';
+import { refreshUpcoming } from './upcoming.js';
 
 let pendingFinalizeSlotId = null;
 let pendingFinalizePollId = null;
 
-let pollCalendar = null;
-let pollTimePicker = null;
+let pollOptionStartTimePicker = null;
+let pollOptionEndTimePicker = null;
+let pollOptionDateCalendar = null;
 
 const nextDateTime = () => {
     const d = new Date();
@@ -18,48 +20,150 @@ const nextDateTime = () => {
     return d;
 };
 
-const ensurePickerInit = (dialogEl) => {
+const toDate = (ymd, hm) => {
+    const [y, m, d] = String(ymd).split('-').map(Number);
+    const [h, min] = String(hm).split(':').map(Number);
+    return new Date(y, m - 1, d, h, min, 0, 0);
+};
+
+const setPollOptionFieldWarning = (dialogEl, msg) => {
+    const el = dialogEl?.querySelector('.poll-option-date-field-warning');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.style.opacity = msg ? '1' : '0';
+};
+
+const syncPollOptionFieldWarning = (dialogEl) => {
     if (!dialogEl) return;
-    const calendarHost = dialogEl.querySelector('.poll-new-calendar');
-    const dateInput = dialogEl.querySelector('.poll-new-date');
-    const timeInput = dialogEl.querySelector('.poll-new-time');
-    const timePickerHost = dialogEl.querySelector('.poll-new-timepicker');
+    setDialogFooterError(dialogEl, null);
+    const submit = dialogEl.querySelector('button[type="submit"]');
+    const date = dialogEl.querySelector('.poll-option-date')?.value;
+    const start = dialogEl.querySelector('.poll-option-start-time')?.value;
+    const end = dialogEl.querySelector('.poll-option-end-time')?.value;
+    if (!submit) return;
+    if (!date || !start || !end) {
+        setPollOptionFieldWarning(dialogEl, null);
+        submit.disabled = false;
+        return;
+    }
+    if (date < todayYmd()) {
+        setPollOptionFieldWarning(dialogEl, 'Choose today or a future date.');
+        submit.disabled = true;
+        return;
+    }
+    if (!isFutureDateTime(date, start)) {
+        setPollOptionFieldWarning(dialogEl, 'Choose a future time.');
+        submit.disabled = true;
+        return;
+    }
+    if (toDate(date, start) >= toDate(date, end)) {
+        setPollOptionFieldWarning(dialogEl, 'End time must be after start time.');
+        submit.disabled = true;
+        return;
+    }
+    const list = document.querySelector('.poll-dialog .poll-added-slots');
+    const key = `${date}|${start}|${end}`;
+    const exists = list && [...list.querySelectorAll('.poll-added-slot-row')]
+        .some((row) => row.dataset.dayRangeKey === key);
+    if (exists) {
+        setPollOptionFieldWarning(dialogEl, 'That date/time range is already added.');
+        submit.disabled = true;
+        return;
+    }
+    setPollOptionFieldWarning(dialogEl, null);
+    submit.disabled = false;
+};
 
+const updatePollOptionPreview = (dialogEl) => {
+    if (!dialogEl) return;
+    const date = dialogEl.querySelector('.poll-option-date')?.value;
+    const startTime = dialogEl.querySelector('.poll-option-start-time')?.value;
+    const valueEl = dialogEl.querySelector('[data-preview="poll-option"] .dialog-live-preview-value');
+    if (!valueEl) return;
+    if (!date || !startTime) {
+        valueEl.textContent = '';
+    } else {
+        valueEl.textContent = `${formatShortDate(date)}, ${formatClockTime(startTime)}`;
+    }
+    syncPollOptionFieldWarning(dialogEl);
+};
+
+document.addEventListener('input', (e) => {
+    if (!e.target.classList?.contains('poll-title-input')) return;
+    const dlg = e.target.closest('.poll-dialog');
+    if (!dlg) return;
+    setDialogFooterError(dlg, null);
+});
+
+const ensureOptionDialogPickers = (dialogEl) => {
+    if (!dialogEl) return;
+    const dateInput = dialogEl.querySelector('.poll-option-date');
+    const calendarHost = dialogEl.querySelector('.poll-option-date-calendar');
+    const startInput = dialogEl.querySelector('.poll-option-start-time');
+    const endInput = dialogEl.querySelector('.poll-option-end-time');
+    const startHost = dialogEl.querySelector('.poll-option-start-timepicker');
+    const endHost = dialogEl.querySelector('.poll-option-end-timepicker');
     const start = nextDateTime();
+    const end = new Date(start);
+    end.setHours(start.getHours() + 2, start.getMinutes(), 0, 0);
     if (!dateInput.value) dateInput.value = toYmd(start);
-    if (!timeInput.value) timeInput.value = toHm(start);
+    if (!startInput.value) startInput.value = toHm(start);
+    if (!endInput.value) endInput.value = toHm(end);
 
-    if (!pollCalendar) {
-        pollCalendar = createCalendar(calendarHost, {
+    if (!pollOptionDateCalendar) {
+        pollOptionDateCalendar = createCalendar(calendarHost, {
             mode: 'picker',
             view: 'month',
-            onSelect: (date) => { dateInput.value = date; },
+            onSelect: (date) => {
+                dateInput.value = date;
+                updatePollOptionPreview(dialogEl);
+            },
         });
     }
+    pollOptionDateCalendar.setSelected(dateInput.value);
+    pollOptionDateCalendar.goto(dateInput.value);
 
-    if (!pollTimePicker) {
-        pollTimePicker = createTimePicker(timePickerHost, {
-            value: timeInput.value,
-            onChange: (val) => { timeInput.value = val; },
+    if (!pollOptionStartTimePicker) {
+        pollOptionStartTimePicker = createTimePicker(startHost, {
+            value: startInput.value,
+            onChange: (val) => {
+                startInput.value = val;
+                updatePollOptionPreview(dialogEl);
+            },
         });
     }
+    if (!pollOptionEndTimePicker) {
+        pollOptionEndTimePicker = createTimePicker(endHost, {
+            value: endInput.value,
+            onChange: (val) => {
+                endInput.value = val;
+                updatePollOptionPreview(dialogEl);
+            },
+        });
+    }
+    updatePollOptionPreview(dialogEl);
 };
 
 const resetDialog = (dialogEl) => {
     if (!dialogEl) return;
     dialogEl.querySelector('.poll-title-input').value = '';
     dialogEl.querySelector('.poll-added-slots').innerHTML = '';
-    dialogEl.querySelector('.poll-invitees-list').innerHTML = '';
-    dialogEl.querySelector('.poll-invitee-input').value = '';
-    dialogEl.querySelector('.dialog-error').hidden = true;
-    dialogEl.querySelector('.dialog-error').textContent = '';
-    pollCalendar = null;
-    pollTimePicker = null;
-    dialogEl.querySelector('.poll-new-calendar').innerHTML = '';
-    dialogEl.querySelector('.poll-new-timepicker').innerHTML = '';
-    dialogEl.querySelector('.poll-new-date').value = '';
-    dialogEl.querySelector('.poll-new-time').value = '';
-    ensurePickerInit(dialogEl);
+    setDialogFooterError(dialogEl, null);
+    const optionDialog = document.querySelector('.poll-option-dialog');
+    if (optionDialog) {
+        pollOptionDateCalendar = null;
+        pollOptionStartTimePicker = null;
+        pollOptionEndTimePicker = null;
+        optionDialog.querySelector('.poll-option-date-calendar').innerHTML = '';
+        optionDialog.querySelector('.poll-option-start-timepicker').innerHTML = '';
+        optionDialog.querySelector('.poll-option-end-timepicker').innerHTML = '';
+        optionDialog.querySelector('.poll-option-date').value = '';
+        optionDialog.querySelector('.poll-option-start-time').value = '';
+        optionDialog.querySelector('.poll-option-end-time').value = '';
+        setDialogFooterError(optionDialog, null);
+        setPollOptionFieldWarning(optionDialog, null);
+        updatePollOptionPreview(optionDialog);
+    }
 };
 
 export const refreshOwnerPolls = async () => {
@@ -77,7 +181,6 @@ export const refreshOwnerPolls = async () => {
         console.error('failed to load polls', err);
         return;
     }
-
     if (polls.length === 0) {
         list.hidden = true;
         list.innerHTML = '';
@@ -93,39 +196,44 @@ export const refreshOwnerPolls = async () => {
         const poll = polls[i];
 
         const li = document.createElement('li');
-        li.className = 'poll-row';
+        li.className = 'owner-poll-card';
         li.dataset.id = poll.id;
+
+        const totalVotes = poll.slots.reduce((sum, s) => sum + (Number(s.vote_count) || 0), 0);
+        const voteSummary = totalVotes === 1 ? '1 vote' : `${totalVotes} votes`;
+        const nOpt = poll.slots.length;
+        const optSummary = nOpt === 1 ? '1 time option' : `${nOpt} time options`;
 
         let slotsHtml = '';
         for (let j = 0; j < poll.slots.length; j++) {
             const slot = poll.slots[j];
-            const voteLabel = slot.vote_count === 1 ? '1 vote' : slot.vote_count + ' votes';
-            let selectBtn = '';
-            if (poll.status === 'open') {
-                selectBtn = `<button type="button" class="ghost-button press" data-action="finalize-poll" data-poll-id="${poll.id}" data-slot-id="${slot.id}">Select</button>`;
-            }
+            const voteLabel = slot.vote_count === 1 ? '1 vote' : `${slot.vote_count} votes`;
+            const selectBtn = `<button type="button" class="ghost-button press" data-action="finalize-poll" data-poll-id="${poll.id}" data-slot-id="${slot.id}">Select</button>`;
             slotsHtml += `
-                <li class="poll-result-row">
-                    <span class="poll-result-date">${formatShortDate(slot.date)}</span>
-                    <span class="poll-result-time">${formatClockTime(slot.time)}</span>
-                    <span class="poll-result-count">${voteLabel}</span>
+                <li class="owner-poll-slot-row">
+                    <div class="owner-poll-slot-when">
+                        <span class="owner-poll-slot-date">${formatShortDate(slot.date)}</span>
+                        <span class="owner-poll-slot-time">${formatClockTime(slot.time)}</span>
+                    </div>
+                    <span class="owner-poll-slot-votes">${voteLabel}</span>
                     ${selectBtn}
                 </li>
             `;
         }
 
-        const statusLabel = poll.status === 'closed' ? 'closed' : 'open';
         li.innerHTML = `
-        <div class="poll-row-header">
-            <span class="poll-row-title">${poll.title}</span>
-            <div class="poll-row-actions">
-                <span class="poll-row-status status-${statusLabel}">${statusLabel}</span>
+        <div class="owner-poll-card-head">
+            <div class="owner-poll-card-lead">
+                <span class="owner-poll-card-title">${escapeHtml(poll.title)}</span>
+                <span class="owner-poll-card-meta">${voteSummary} · ${optSummary}</span>
+            </div>
+            <div class="owner-poll-card-tools">
                 <button type="button" class="row-icon-button" data-action="delete-poll" data-poll-id="${poll.id}" title="Delete">
                     <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
                 </button>
             </div>
         </div>
-        <ul class="poll-results-list">${slotsHtml}</ul>
+        <ul class="owner-poll-slot-list">${slotsHtml}</ul>
         `;
 
         list.appendChild(li);
@@ -141,59 +249,23 @@ export const handlePollManagerClick = async (e, { toast }) => {
         return true;
     }
 
-    const addSlotBtn = e.target.closest('[data-action="add-poll-slot"]');
-    if (addSlotBtn) {
-        const dlg = document.querySelector('.poll-dialog');
-        const dateInput = dlg.querySelector('.poll-new-date');
-        const timeInput = dlg.querySelector('.poll-new-time');
-        if (!dateInput.value || !timeInput.value) return true;
-
-        const list = dlg.querySelector('.poll-added-slots');
-        const li = document.createElement('li');
-        li.className = 'poll-added-slot-row';
-        li.dataset.date = dateInput.value;
-        li.dataset.time = timeInput.value;
-        li.innerHTML = `
-            <span>${formatShortDate(dateInput.value)} at ${formatClockTime(timeInput.value)}</span>
-            <button type="button" class="row-icon-button" data-action="remove-poll-slot">
-                <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
-            </button>
-        `;
-        list.appendChild(li);
+    const openOptionBtn = e.target.closest('[data-action="open-poll-option-dialog"]');
+    if (openOptionBtn) {
+        const optionDialog = document.querySelector('.poll-option-dialog');
+        setDialogFooterError(optionDialog, null);
+        setPollOptionFieldWarning(optionDialog, null);
+        ensureOptionDialogPickers(optionDialog);
+        if (optionDialog) openDialog(optionDialog);
         return true;
     }
 
     const removeSlotBtn = e.target.closest('[data-action="remove-poll-slot"]');
     if (removeSlotBtn) {
         removeSlotBtn.closest('.poll-added-slot-row').remove();
-        return true;
-    }
-
-    const addInviteeBtn = e.target.closest('[data-action="add-invitee"]');
-    if (addInviteeBtn) {
         const dlg = document.querySelector('.poll-dialog');
-        const input = dlg.querySelector('.poll-invitee-input');
-        const email = input.value.trim();
-        if (!email) return true;
-
-        const list = dlg.querySelector('.poll-invitees-list');
-        const li = document.createElement('li');
-        li.className = 'poll-invitee-row';
-        li.dataset.email = email;
-        li.innerHTML = `
-            <span>${email}</span>
-            <button type="button" class="row-icon-button" data-action="remove-invitee">
-                <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
-            </button>
-        `;
-        list.appendChild(li);
-        input.value = '';
-        return true;
-    }
-
-    const removeInviteeBtn = e.target.closest('[data-action="remove-invitee"]');
-    if (removeInviteeBtn) {
-        removeInviteeBtn.closest('.poll-invitee-row').remove();
+        if (dlg) {
+            setDialogFooterError(dlg, null);
+        }
         return true;
     }
 
@@ -201,34 +273,17 @@ export const handlePollManagerClick = async (e, { toast }) => {
     if (submitBtn) {
         const user = getUser();
         const dlg = document.querySelector('.poll-dialog');
-        const errEl = dlg.querySelector('.dialog-error');
         const title = dlg.querySelector('.poll-title-input').value.trim();
 
         const slotRows = dlg.querySelectorAll('.poll-added-slot-row');
         const slots = [];
         for (let i = 0; i < slotRows.length; i++) {
-            slots.push({ date: slotRows[i].dataset.date, time: slotRows[i].dataset.time + ':00' });
+            const row = slotRows[i];
+            slots.push({ date: row.dataset.date, time: row.dataset.time });
         }
 
-        const inviteeRows = dlg.querySelectorAll('.poll-invitee-row');
-        const invitees = [];
-        for (let i = 0; i < inviteeRows.length; i++) {
-            invitees.push(inviteeRows[i].dataset.email);
-        }
-
-        if (!title) {
-            errEl.textContent = 'Please add a title';
-            errEl.hidden = false;
-            return true;
-        }
         if (slots.length === 0) {
-            errEl.textContent = 'Please add at least one time slot';
-            errEl.hidden = false;
-            return true;
-        }
-        if (invitees.length === 0) {
-            errEl.textContent = 'Please add at least one invitee';
-            errEl.hidden = false;
+            setDialogFooterError(dlg, 'Please add at least one time slot');
             return true;
         }
 
@@ -236,14 +291,13 @@ export const handlePollManagerClick = async (e, { toast }) => {
         try {
             await apiFetch('/group-polls', {
                 method: 'POST',
-                body: { owner_id: user.id, title, slots, invitees },
+                body: { owner_id: user.id, title, slots },
             });
             requestDialogClose(dlg);
             await refreshOwnerPolls();
             toast('Group meeting created!');
         } catch (err) {
-            errEl.textContent = err.message || 'Something went wrong';
-            errEl.hidden = false;
+            setDialogFooterError(dlg, err.message || 'Something went wrong');
         } finally {
             submitBtn.disabled = false;
         }
@@ -256,22 +310,15 @@ export const handlePollManagerClick = async (e, { toast }) => {
         pendingFinalizeSlotId = finalizeBtn.dataset.slotId;
 
         const dlg = document.querySelector('.finalize-dialog');
-        const timeLabel = finalizeBtn.closest('.poll-result-row').querySelector('.poll-result-date').textContent
-            + ' at ' + finalizeBtn.closest('.poll-result-row').querySelector('.poll-result-time').textContent;
+        const slotRow = finalizeBtn.closest('.owner-poll-slot-row');
+        const dateText = slotRow?.querySelector('.owner-poll-slot-date')?.textContent || '';
+        const timeText = slotRow?.querySelector('.owner-poll-slot-time')?.textContent || '';
+        const timeLabel = dateText && timeText ? `${dateText} at ${timeText}` : '';
         dlg.querySelector('.finalize-selected-time').textContent = timeLabel;
         dlg.querySelector('.dialog-error').hidden = true;
-
-        const radios = dlg.querySelectorAll('input[name="repeat-type"]');
-        for (const radio of radios) {
-            radio.checked = radio.value === 'once';
-        }
-        dlg.querySelector('.finalize-weeks-field').hidden = true;
-
-        radios.forEach(radio => {
-            radio.onchange = () => {
-                dlg.querySelector('.finalize-weeks-field').hidden = radio.value !== 'repeat';
-            };
-        });
+        dlg.querySelector('.dialog-error').textContent = '';
+        const weeksInput = dlg.querySelector('.finalize-weeks-input');
+        if (weeksInput) weeksInput.value = '1';
 
         openDialog(dlg);
         return true;
@@ -280,8 +327,8 @@ export const handlePollManagerClick = async (e, { toast }) => {
     const confirmBtn = e.target.closest('[data-action="confirm-finalize"]');
     if (confirmBtn) {
         const dlg = document.querySelector('.finalize-dialog');
-        const repeatType = dlg.querySelector('input[name="repeat-type"]:checked').value;
-        const weeks = repeatType === 'repeat' ? Number(dlg.querySelector('.finalize-weeks-input').value) : 1;
+        const weeksRaw = Number(dlg.querySelector('.finalize-weeks-input')?.value || 1);
+        const weeks = Number.isFinite(weeksRaw) ? weeksRaw : 1;
 
         confirmBtn.disabled = true;
         try {
@@ -290,8 +337,8 @@ export const handlePollManagerClick = async (e, { toast }) => {
                 body: { slot_id: Number(pendingFinalizeSlotId), weeks },
             });
             requestDialogClose(dlg);
-            await refreshOwnerPolls();
-            toast('Meeting confirmed! Invitees have been notified.');
+            await Promise.all([refreshOwnerPolls(), refreshOwnerSlots(), refreshUpcoming()]);
+            toast('Meeting slot created');
         } catch (err) {
             dlg.querySelector('.dialog-error').textContent = err.message || 'Something went wrong';
             dlg.querySelector('.dialog-error').hidden = false;
@@ -318,3 +365,51 @@ export const handlePollManagerClick = async (e, { toast }) => {
 
     return false;
 };
+
+let optionFormBound = false;
+const bindOptionDialogSubmit = () => {
+    if (optionFormBound) return;
+    optionFormBound = true;
+    document.addEventListener('submit', (e) => {
+        const form = e.target.closest('.poll-option-dialog .dialog-form[data-form="poll-option"]');
+        if (!form) return;
+        e.preventDefault();
+
+        const optionDialog = form.closest('.poll-option-dialog');
+        const parentDialog = document.querySelector('.poll-dialog');
+        const list = parentDialog?.querySelector('.poll-added-slots');
+        if (!list) return;
+
+        syncPollOptionFieldWarning(optionDialog);
+        if (form.querySelector('button[type="submit"]')?.disabled) return;
+
+        const date = form.querySelector('.poll-option-date').value;
+        const startTime = form.querySelector('.poll-option-start-time').value;
+        const endTime = form.querySelector('.poll-option-end-time').value;
+        if (!date || !startTime || !endTime) return;
+
+        const existingKey = `${date}|${startTime}|${endTime}`;
+
+        const li = document.createElement('li');
+        li.className = 'poll-added-slot-row';
+        li.dataset.date = date;
+        li.dataset.time = `${startTime}:00`;
+        li.dataset.dayRangeKey = existingKey;
+        li.innerHTML = `
+            <div class="poll-added-slot-main">
+                <span class="poll-added-slot-date">${formatShortDate(date)}</span>
+                <span class="poll-added-slot-time">${formatClockTime(startTime)} - ${formatClockTime(endTime)}</span>
+            </div>
+            <button type="button" class="row-icon-button" data-action="remove-poll-slot">
+                <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
+            </button>
+        `;
+        list.appendChild(li);
+        if (parentDialog) {
+            setDialogFooterError(parentDialog, null);
+        }
+        requestDialogClose(optionDialog);
+    });
+};
+
+bindOptionDialogSubmit();

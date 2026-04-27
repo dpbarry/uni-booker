@@ -79,4 +79,22 @@ export const closeAllDialogs = () => {
     document.querySelectorAll('dialog[open]').forEach((dlg) => requestDialogClose(dlg));
 };
 
+export const setDialogFooterError = (root, message) => {
+    if (!root) return;
+    const foot = root.querySelector('[data-dialog-foot]') || (root.matches?.('[data-dialog-foot]') ? root : null);
+    if (!foot) return;
+    const preview = foot.querySelector('[data-dialog-foot-preview]');
+    const warn = foot.querySelector('[data-dialog-foot-warning]');
+    if (!preview || !warn) return;
+    if (message) {
+        warn.textContent = message;
+        warn.hidden = false;
+        preview.hidden = true;
+    } else {
+        warn.textContent = '';
+        warn.hidden = true;
+        preview.hidden = false;
+    }
+};
+
 window.addEventListener('hashchange', closeAllDialogs);

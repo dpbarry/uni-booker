@@ -242,16 +242,32 @@
   opacity: 0.5;
 }
 
-.cal-cell.is-today .cal-num {
+/* Today: accent-colored numerals only (no ring) */
+.cal-cell.is-today:not(.is-selected) .cal-num {
   background: transparent;
-  border: 1.5px solid var(--color-accent);
+  border: none;
+  color: var(--color-accent);
   font-weight: 700;
 }
 
-.cal-cell.is-selected:not(.is-today) .cal-num {
+/* Selected: soft fill only; numerals stay default (not accent) */
+.cal-cell.is-selected .cal-num {
   background: var(--active-bg);
+  color: var(--color-base);
+  font-weight: 500;
+  border: 1.5px solid transparent;
+  box-sizing: border-box;
+}
+
+/* Today + selected: keep red/accent numerals on top of selected fill */
+.cal-cell.is-today.is-selected .cal-num {
   color: var(--color-accent);
   font-weight: 700;
+}
+
+/* Dimmed other-month days that are today */
+.cal-cell.is-dim.is-today:not(.is-selected) .cal-num {
+  color: var(--color-accent);
 }
 
 .cal-cell.is-range .cal-num {

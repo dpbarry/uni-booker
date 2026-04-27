@@ -10,7 +10,9 @@ export const openPollPage = async (token) => {
 
     let data;
     try {
-        data = await apiFetch(`/group-polls/vote/${token}`);
+        const viewer = getUser();
+        const qs = viewer ? `?viewer=${viewer.id}` : '';
+        data = await apiFetch(`/group-polls/invite/${token}${qs}`);
     } catch (err) {
         container.innerHTML = `<p class="poll-error">${err.message || 'Failed to load poll'}</p>`;
         return;
@@ -20,8 +22,8 @@ export const openPollPage = async (token) => {
     const slots = data.slots;
     const myVotes = data.myVotes;
 
-    if (poll.status === 'closed') {
-        container.innerHTML = `<div class="poll-closed"><h2>${poll.title}</h2><p>This poll is already closed.</p></div>`;
+    if (!poll) {
+        container.innerHTML = `<div class="poll-closed"><h2>Group meeting</h2><p>This poll is no longer available.</p></div>`;
         return;
     }
 
@@ -73,11 +75,13 @@ export const openPollPage = async (token) => {
 
     const submitBtn = container.querySelector('#poll-submit-btn');
     submitBtn.addEventListener('click', async () => {
+        const viewer = getUser();
+        if (!viewer) return;
         submitBtn.disabled = true;
         try {
-            await apiFetch(`/group-polls/vote/${token}`, {
+            await apiFetch(`/group-polls/invite/${token}/vote`, {
                 method: 'POST',
-                body: { slot_ids: selectedIds },
+                body: { viewer_id: viewer.id, slot_ids: selectedIds },
             });
             showToast({ content: '<span>Availability saved!</span>', timeout: 2500 });
         } catch (err) {

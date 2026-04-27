@@ -34,7 +34,7 @@
         </header>
 
         <main class="main-wrap">
-            <section class="card card-wide card-slots" style="--i: 0" data-role="owner">
+            <section class="card card-slots" style="--i: 0" data-role="owner">
                 <header class="card-header">
                     <div class="card-heading">
                         <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24">
@@ -49,9 +49,6 @@
                             </svg>
                             <span>Share link</span>
                         </button>
-                        <button type="button" class="ghost-button press" data-action="new-recurring-slot">
-                            <span>Recurring</span>
-                        </button>
                         <button type="button" class="primary-button press" data-action="new-slot">
                             <svg width="14" height="14" viewBox="0 0 24 24">
                                 <use href="assets/icons.svg#plus" />
@@ -64,7 +61,7 @@
                 <div class="empty-state" data-empty="owner-slots">No slots yet. Click New slot to create one.</div>
             </section>
 
-            <section class="card card-wide card-polls" style="--i: 0" data-role="owner">
+            <section class="card card-polls" style="--i: 0" data-role="owner">
                 <header class="card-header">
                     <div class="card-heading">
                         <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24">
@@ -81,11 +78,13 @@
                         </button>
                     </div>
                 </header>
-                <ul class="poll-list" hidden></ul>
-                <div class="empty-state" data-empty="owner-polls">No group meetings yet.</div>
+                <div class="card-polls-body">
+                    <ul class="poll-list" hidden></ul>
+                    <div class="empty-state" data-empty="owner-polls">No group meetings yet.</div>
+                </div>
             </section>
 
-            <section class="card card-wide card-profs" style="--i: 0" data-role="student">
+            <section class="card card-profs" style="--i: 0" data-role="student">
                 <header class="card-header">
                     <div class="card-heading">
                         <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24">
@@ -108,7 +107,7 @@
                 </div>
             </section>
 
-            <section class="card card-full card-upcoming" style="--i: 1">
+            <section class="card card-upcoming" style="--i: 1">
                 <header class="card-header">
                     <div class="card-heading">
                         <svg class="card-icon" width="14" height="14" viewBox="0 0 24 24">
@@ -142,69 +141,41 @@
                     </button>
                 </header>
                 <label class="dialog-field">
-                    <span>Date</span>
+                    <span>Name (optional)</span>
+                    <input type="text" name="group_title" class="dialog-input" placeholder="e.g. Office hours, Midterm review">
+                </label>
+                <div class="dialog-field dialog-field--date">
+                    <div class="dialog-label-row">
+                        <span class="dialog-label">Date</span>
+                        <span class="dialog-field-warning slot-date-field-warning" aria-live="polite"></span>
+                    </div>
                     <input type="hidden" name="date" required>
                     <div class="slot-picker-calendar"></div>
-                </label>
+                </div>
                 <label class="dialog-field">
                     <span>Time</span>
                     <input type="hidden" name="time" required>
                     <div class="slot-time-picker"></div>
                 </label>
-                <p class="dialog-error" hidden></p>
-                <footer class="dialog-footer">
-                    <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
-                    <button type="submit" class="primary-button press">Create slot</button>
-                </footer>
-            </form>
-        </dialog>
-
-        <dialog class="ui-dialog recurring-slot-dialog">
-            <form class="dialog-form" data-form="new-recurring-slot">
-                <header class="dialog-header">
-                    <h2 class="dialog-title">Create Recurring Office Hours</h2>
-                    <button type="button" class="icon-button press" data-action="close-dialog" title="Close">
-                        <svg width="18" height="18" viewBox="0 0 24 24">
-                            <use href="assets/icons.svg#x" />
-                        </svg>
-                    </button>
-                </header>
-
-                <label class="dialog-field">
-                    <span>Repeats on</span>
-                    <div class="weekday-checkboxes">
-                        <label class="weekday-label"><input type="checkbox" name="days" value="1"> Mon</label>
-                        <label class="weekday-label"><input type="checkbox" name="days" value="2"> Tue</label>
-                        <label class="weekday-label"><input type="checkbox" name="days" value="3"> Wed</label>
-                        <label class="weekday-label"><input type="checkbox" name="days" value="4"> Thu</label>
-                        <label class="weekday-label"><input type="checkbox" name="days" value="5"> Fri</label>
-                        <label class="weekday-label"><input type="checkbox" name="days" value="6"> Sat</label>
-                        <label class="weekday-label"><input type="checkbox" name="days" value="0"> Sun</label>
-                    </div>
-                </label>
-
-                <label class="dialog-field">
-                    <span>Time</span>
-                    <input type="hidden" name="time" required>
-                    <div class="recurring-time-picker"></div>
-                </label>
-
-                <label class="dialog-field">
-                    <span>Starting from</span>
-                    <input type="hidden" name="start_date" required>
-                    <div class="recurring-picker-calendar"></div>
-                </label>
-
                 <label class="dialog-field">
                     <span>Number of weeks</span>
-                    <input type="number" name="weeks" min="1" max="52" value="13" class="dialog-input" required>
+                    <div class="repeat-weeks-row">
+                        <input type="number" name="repeat_weeks" min="1" max="52" value="1" class="dialog-input" required>
+                        <span class="repeat-weeks-label">week(s)</span>
+                    </div>
                 </label>
-
-                <p class="dialog-error" hidden></p>
-
-                <footer class="dialog-footer">
+                <footer class="dialog-footer dialog-footer-preview">
+                    <div class="dialog-foot" data-dialog-foot>
+                        <div class="dialog-foot-preview" data-dialog-foot-preview>
+                            <div class="dialog-live-preview" data-preview="slot">
+                                <span class="dialog-live-preview-label">Creating slot for</span>
+                                <span class="dialog-live-preview-value"></span>
+                            </div>
+                        </div>
+                        <p class="dialog-foot-warning" data-dialog-foot-warning hidden role="alert"></p>
+                    </div>
                     <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
-                    <button type="submit" class="primary-button press">Create slots</button>
+                    <button type="submit" class="primary-button press">Create slot</button>
                 </footer>
             </form>
         </dialog>
@@ -220,43 +191,74 @@
                     </button>
                 </header>
                 <div class="dialog-field">
-                    <span class="dialog-label">Title</span>
-                    <input type="text" class="poll-title-input" placeholder="e.g. Project kickoff" />
+                    <span class="dialog-label">Name (optional)</span>
+                    <input type="text" class="poll-title-input" placeholder="e.g. Essay review" />
                 </div>
-                <div class="dialog-field">
+                <div class="dialog-field dialog-field--poll-options">
                     <span class="dialog-label">Available times</span>
+                    <p class="poll-slot-hint">Students vote on these options.</p>
                     <div class="poll-slots-picker">
-                        <div class="poll-slot-add-row">
-                            <input type="hidden" class="poll-new-date" />
-                            <div class="poll-new-calendar"></div>
-                            <input type="hidden" class="poll-new-time" />
-                            <div class="poll-new-timepicker"></div>
-                            <button type="button" class="ghost-button press" data-action="add-poll-slot">
-                                <svg width="14" height="14" viewBox="0 0 24 24">
-                                    <use href="assets/icons.svg#plus" />
-                                </svg>
-                                <span>Add time</span>
-                            </button>
-                        </div>
-                        <ul class="poll-added-slots"></ul>
+                        <button type="button" class="ghost-button press poll-add-option-btn" data-action="open-poll-option-dialog">
+                            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                                <use href="assets/icons.svg#plus" />
+                            </svg>
+                            <span>Add option</span>
+                        </button>
+                        <ul class="poll-added-slots" aria-label="Added time options"></ul>
                     </div>
                 </div>
-                <div class="dialog-field">
-                    <span class="dialog-label">Invite by email</span>
-                    <div class="poll-invitees-wrap">
-                        <div class="poll-invitee-input-row">
-                            <input type="email" class="poll-invitee-input" placeholder="student@mail.mcgill.ca" />
-                            <button type="button" class="ghost-button press" data-action="add-invitee">Add</button>
-                        </div>
-                        <ul class="poll-invitees-list"></ul>
+                <footer class="dialog-footer dialog-footer-preview">
+                    <div class="dialog-foot" data-dialog-foot>
+                        <p class="dialog-foot-warning" data-dialog-foot-warning hidden role="alert"></p>
                     </div>
-                </div>
-                <p class="dialog-error" hidden></p>
-                <footer class="dialog-footer">
                     <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
                     <button type="button" class="primary-button press" data-action="submit-poll">Create</button>
                 </footer>
             </div>
+        </dialog>
+
+        <dialog class="ui-dialog poll-option-dialog">
+            <form class="dialog-form" data-form="poll-option">
+                <header class="dialog-header">
+                    <h2 class="dialog-title">Add meeting option</h2>
+                    <button type="button" class="icon-button press" data-action="close-dialog" title="Close">
+                        <svg width="18" height="18" viewBox="0 0 24 24">
+                            <use href="assets/icons.svg#x" />
+                        </svg>
+                    </button>
+                </header>
+                <div class="dialog-field dialog-field--date">
+                    <div class="dialog-label-row">
+                        <span class="dialog-label">Date</span>
+                        <span class="dialog-field-warning poll-option-date-field-warning" aria-live="polite"></span>
+                    </div>
+                    <input type="hidden" class="poll-option-date" required>
+                    <div class="poll-option-date-calendar"></div>
+                </div>
+                <label class="dialog-field">
+                    <span>Start time</span>
+                    <input type="hidden" class="poll-option-start-time" required>
+                    <div class="poll-option-start-timepicker"></div>
+                </label>
+                <label class="dialog-field">
+                    <span>End time</span>
+                    <input type="hidden" class="poll-option-end-time" required>
+                    <div class="poll-option-end-timepicker"></div>
+                </label>
+                <footer class="dialog-footer dialog-footer-preview">
+                    <div class="dialog-foot" data-dialog-foot>
+                        <div class="dialog-foot-preview" data-dialog-foot-preview>
+                            <div class="dialog-live-preview" data-preview="poll-option">
+                                <span class="dialog-live-preview-label">Time option</span>
+                                <span class="dialog-live-preview-value"></span>
+                            </div>
+                        </div>
+                        <p class="dialog-foot-warning" data-dialog-foot-warning hidden role="alert"></p>
+                    </div>
+                    <button type="button" class="primary-button-ghost press" data-action="close-dialog">Cancel</button>
+                    <button type="submit" class="primary-button press">Add option</button>
+                </footer>
+            </form>
         </dialog>
 
         <dialog class="ui-dialog finalize-dialog">
@@ -270,22 +272,9 @@
                     </button>
                 </header>
                 <p class="finalize-selected-time"></p>
-                <div class="dialog-field">
-                    <span class="dialog-label">Does this repeat?</span>
-                    <div class="finalize-repeat-options">
-                        <label class="finalize-radio-row">
-                            <input type="radio" name="repeat-type" value="once" checked />
-                            <span>One-time only</span>
-                        </label>
-                        <label class="finalize-radio-row">
-                            <input type="radio" name="repeat-type" value="repeat" />
-                            <span>Repeat weekly</span>
-                        </label>
-                    </div>
-                </div>
-                <div class="dialog-field finalize-weeks-field" hidden>
+                <div class="dialog-field finalize-weeks-field">
                     <span class="dialog-label">Number of weeks</span>
-                    <input type="number" class="finalize-weeks-input" min="2" max="26" value="2" />
+                    <input type="number" class="finalize-weeks-input" min="1" max="26" value="1" />
                 </div>
                 <p class="dialog-error" hidden></p>
                 <footer class="dialog-footer">

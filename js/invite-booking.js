@@ -1,7 +1,7 @@
 import { apiFetch, getUser, ApiError } from './global.js';
 import { createDialog, openDialog, requestDialogClose } from './dialog.js';
 import { showToast } from './toast.js';
-import { escapeHtml, formatClockTime, formatShortDate, initialsFromEmail, toHm, toYmd } from './format.js';
+import { escapeHtml, formatClockTime, formatShortDate, initialsFromEmail, isFutureDateTime, toHm, toYmd, todayYmd } from './format.js';
 import { createCalendar } from './calendar.js';
 import { createTimePicker } from './time-picker.js';
 
@@ -12,15 +12,6 @@ const nextRequestDateTime = () => {
     d.setDate(d.getDate() + 1);
     d.setHours(14, 0, 0, 0);
     return d;
-};
-
-const todayYmd = () => toYmd(new Date());
-const isFutureDateTime = (ymd, hm) => {
-    if (!ymd || !hm) return false;
-    const [y, m, d] = ymd.split('-').map(Number);
-    const [h, min] = hm.split(':').map(Number);
-    const selected = new Date(y, m - 1, d, h, min, 0, 0);
-    return selected.getTime() > Date.now();
 };
 
 const openRequestDialog = (ownerId) => {
@@ -162,7 +153,63 @@ export const resolveToken = async (ownerId) => {
     return token;
 };
 
-const renderContent = (data, viewer) => {
+const renderOnePollCard = (entry, viewer, isOwnerViewing) => {
+    const poll = entry?.poll;
+    const slots = Array.isArray(entry?.slots) ? entry.slots : [];
+    const myVotes = Array.isArray(entry?.myVotes) ? entry.myVotes : [];
+    if (!poll) return '';
+
+    const isStudent = viewer?.role === 'student';
+    const selected = new Set(myVotes.map(Number));
+
+    const optionsHtml = slots.length
+        ? slots
+              .map((slot) => {
+                  const selectedCls = selected.has(slot.id) ? ' is-selected' : '';
+                  const voteCount = Number(slot.vote_count) || 0;
+                  const voteLabel = voteCount === 1 ? '1 vote' : `${voteCount} votes`;
+                  return `<button type="button" class="poll-vote-option${selectedCls}" data-action="toggle-poll-vote" data-slot-id="${slot.id}" aria-pressed="${selected.has(slot.id) ? 'true' : 'false'}" title="Tap to add or remove your vote" ${isStudent ? '' : 'disabled'}>
+                <span class="poll-vote-pick" aria-hidden="true">
+                    <svg class="poll-vote-check" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#check" /></svg>
+                </span>
+                <span class="poll-vote-when">
+                    <span class="booking-slot-date">${formatShortDate(slot.date)}</span>
+                    <span class="booking-slot-time">${formatClockTime(slot.time)}</span>
+                </span>
+                <span class="poll-vote-meta">${voteLabel}</span>
+            </button>`;
+              })
+              .join('')
+        : '<p class="booking-poll-empty">No time options yet.</p>';
+
+    const subtitle = isOwnerViewing
+        ? 'Students tap a time to vote on your link.'
+        : 'Tap a time to add or remove your vote';
+
+    const cardVariant = isOwnerViewing ? ' booking-poll-card--owner' : '';
+    return `
+        <section class="booking-poll-card${cardVariant}" data-poll-id="${poll.id}">
+            <header class="booking-poll-head">
+                <h3>Group meeting: ${escapeHtml(poll.title)}</h3>
+                <p>${subtitle}</p>
+            </header>
+            <div class="poll-vote-options">${optionsHtml}</div>
+        </section>
+    `;
+};
+
+const renderPollSections = (pollData, viewer, isOwnerViewing) => {
+    const entries =
+        Array.isArray(pollData?.polls) && pollData.polls.length > 0
+            ? pollData.polls
+            : pollData?.poll
+              ? [{ poll: pollData.poll, slots: pollData.slots || [], myVotes: pollData.myVotes || [] }]
+              : [];
+    const inner = entries.map((e) => renderOnePollCard(e, viewer, isOwnerViewing)).join('');
+    return inner ? `<div class="booking-poll-list">${inner}</div>` : '';
+};
+
+const renderContent = (data, viewer, pollData) => {
     const { owner, slots } = data;
     const isOwnerViewing = viewer?.id === owner.id;
     const isOwnerRole = viewer?.role === 'owner';
@@ -192,13 +239,23 @@ const renderContent = (data, viewer) => {
         ? `<div class="booking-request-wrap"><button type="button" class="booking-request-btn press" data-action="request-meeting" data-owner-id="${owner.id}"><svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#calendar-days" /></svg><span>Request a meeting</span></button></div>`
         : '';
 
+    const pollSection = renderPollSections(pollData, viewer, isOwnerViewing);
     if (!slots.length) {
-        return headerHtml + `<div class="booking-empty">No active slots available right now.</div>${requestBtn}`;
+        return headerHtml + `<div class="booking-empty">No active slots available right now.</div>${pollSection}${requestBtn}`;
     }
 
     const slotsHtml = slots.map((slot) => {
         const booked = Boolean(slot.booking_id);
         const selfBooked = booked && slot.booker_id === viewer?.id;
+        const rawTitle = String(slot.group_title || '').trim();
+        const isGroupDefault = slot.type === 'group' && (!rawTitle || rawTitle.toLowerCase() === 'group meeting');
+        const badgeLabel = !rawTitle && slot.type !== 'group'
+            ? ''
+            : isGroupDefault
+                ? 'Group'
+                : slot.type === 'group'
+                    ? `Group - ${escapeHtml(rawTitle)}`
+                    : escapeHtml(rawTitle);
         const disabled = booked || isOwnerViewing || viewOnly || !viewer || !isStudent;
         const label = selfBooked
             ? 'Booked by you'
@@ -217,13 +274,14 @@ const renderContent = (data, viewer) => {
                 <div class="booking-slot-when">
                     <span class="booking-slot-date">${formatShortDate(slot.date)}</span>
                     <span class="booking-slot-time">${formatClockTime(slot.time)}</span>
+                    ${badgeLabel ? `<span class="booking-slot-badge">${badgeLabel}</span>` : ''}
                 </div>
                 ${btn}
             </li>
         `;
     }).join('');
 
-    return `${headerHtml}<ul class="booking-slots">${slotsHtml}</ul>${requestBtn}`;
+    return `${headerHtml}<ul class="booking-slots">${slotsHtml}</ul>${pollSection}${requestBtn}`;
 };
 
 const ensureBookingDialog = () => {
@@ -329,6 +387,35 @@ const bindInteractions = (host, mode, state) => {
             return;
         }
 
+        const pollOption = e.target.closest('[data-action="toggle-poll-vote"]');
+        if (pollOption) {
+            if (viewer?.role !== 'student') return;
+            const pollCard = pollOption.closest('.booking-poll-card');
+            if (!pollCard || pollCard.classList.contains('poll-vote-saving')) return;
+            pollOption.classList.toggle('is-selected');
+            pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
+            const rawPollId = Number(pollCard.dataset.pollId);
+            const slotIds = [...pollCard.querySelectorAll('.poll-vote-option.is-selected')].map((b) => Number(b.dataset.slotId));
+            const voteBody = { viewer_id: viewer.id, slot_ids: slotIds };
+            if (Number.isFinite(rawPollId) && rawPollId > 0) voteBody.poll_id = rawPollId;
+            pollCard.classList.add('poll-vote-saving');
+            try {
+                await apiFetch(`/group-polls/invite/${encodeURIComponent(activeState.token)}/vote`, {
+                    method: 'POST',
+                    body: voteBody,
+                });
+                setError(activeState.container, '');
+                await refreshBookingView(activeMode, activeState);
+            } catch (err) {
+                pollOption.classList.toggle('is-selected');
+                pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
+                setError(activeState.container, err.message || 'Could not update your vote.');
+            } finally {
+                pollCard.classList.remove('poll-vote-saving');
+            }
+            return;
+        }
+
         const shareBtn = e.target.closest('[data-action="share-booking-link"]');
         if (shareBtn) {
             const ownerId = Number(shareBtn.dataset.ownerId);
@@ -344,12 +431,29 @@ const bindInteractions = (host, mode, state) => {
     });
 };
 
+const emptyPollPayload = { poll: null, polls: [], slots: [], myVotes: [] };
+
 const refreshBookingView = async (mode, state) => {
     try {
         const viewer = getUser();
         const qs = viewer ? `?viewer=${viewer.id}` : '';
         const data = await apiFetch(`/invite/${encodeURIComponent(state.token)}${qs}`);
-        state.container.innerHTML = renderContent(data, viewer);
+
+        let pollData = emptyPollPayload;
+        try {
+            pollData = await apiFetch(
+                `/group-polls/invite/${encodeURIComponent(state.token)}${qs}`,
+            );
+        } catch (pollErr) {
+            if (pollErr instanceof ApiError && (pollErr.status === 404 || pollErr.status === 400)) {
+                pollData = emptyPollPayload;
+            } else {
+                console.warn('[invite] group poll load failed', pollErr);
+                pollData = emptyPollPayload;
+            }
+        }
+
+        state.container.innerHTML = renderContent(data, viewer, pollData);
     } catch (err) {
         state.container.innerHTML = '';
         if (mode === 'page') {

@@ -40,3 +40,13 @@ export const formatClockTime = (rawTime) => {
 const pad2 = (n) => String(n).padStart(2, '0');
 export const toYmd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 export const toHm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+export const todayYmd = () => toYmd(new Date());
+
+export const isFutureDateTime = (ymd, hm) => {
+    if (!ymd || !hm) return false;
+    const [y, m, d] = ymd.split('-').map(Number);
+    const [h, min] = hm.split(':').map(Number);
+    const selected = new Date(y, m - 1, d, h, min, 0, 0);
+    return selected.getTime() > Date.now();
+};
