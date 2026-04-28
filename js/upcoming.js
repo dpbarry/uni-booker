@@ -72,6 +72,15 @@ const ensureCalendar = (el) => {
     return calendar;
 };
 
+const setupExportButton = () => {
+    const user = getUser();
+    const exportButton = document.getElementById("export-cal-btn");
+    if (!exportButton || !user) return;
+
+    exportButton.href = `/api/export-calendar?user_id=${user.id}`;
+};
+
+
 export const setUpcomingView = (view) => {
     currentView = view === 'week' ? 'week' : 'month';
     calendar?.setView(currentView);
@@ -88,6 +97,9 @@ export const refreshUpcoming = async () => {
     }
     renderList(rows);
     calendar?.setEvents(toEvents(rows));
+
+    const exportButton = document.getElementById("export-cal-btn");
+    if (exportButton) exportButton.style.display = rows.length ? "" : "none";
 };
 
 export const mountUpcoming = async (view) => {
@@ -96,5 +108,6 @@ export const mountUpcoming = async (view) => {
     currentView = view === 'week' ? 'week' : 'month';
     ensureCalendar(el);
     calendar?.setView(currentView);
+    setupExportButton();
     await refreshUpcoming();
 };
