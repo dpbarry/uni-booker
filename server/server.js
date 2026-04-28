@@ -8,8 +8,41 @@ const app = express();
 app.use(express.json());
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_HASH_PREFIX = "scrypt";
+const SCRYPT_N = 16384;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SALT_BYTES = 16;
+const KEY_BYTES = 64;
 
 const nowIso = () => new Date().toISOString();
+const hashPassword = (password) => {
+  const salt = crypto.randomBytes(SALT_BYTES).toString("hex");
+  const key = crypto.scryptSync(password, salt, KEY_BYTES, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+  }).toString("hex");
+  return `${PASSWORD_HASH_PREFIX}$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${key}`;
+};
+const verifyHashedPassword = (password, storedHash) => {
+  if (typeof storedHash !== "string") return false;
+  const parts = storedHash.split("$");
+  if (parts.length !== 6 || parts[0] !== PASSWORD_HASH_PREFIX) return false;
+  const [, nRaw, rRaw, pRaw, salt, keyHex] = parts;
+  const n = Number(nRaw);
+  const r = Number(rRaw);
+  const p = Number(pRaw);
+  if (!n || !r || !p || !salt || !keyHex) return false;
+  const derived = crypto.scryptSync(password, salt, Buffer.from(keyHex, "hex").length, {
+    N: n,
+    r,
+    p,
+  });
+  const expected = Buffer.from(keyHex, "hex");
+  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+};
+const isPasswordHash = (value) => typeof value === "string" && value.startsWith(`${PASSWORD_HASH_PREFIX}$`);
 const isPast = (date, time) => {
   const when = new Date(`${date}T${time}`);
   return Number.isNaN(when.getTime()) || when.getTime() < Date.now();
@@ -37,9 +70,19 @@ app.post("/login", (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Email and password required" });
 
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const lEmail = String(email).toLowerCase();
+  const user = db.prepare("SELECT * FROM users WHERE lower(email) = ?").get(lEmail);
   if (!user) return res.status(404).json({ error: "User not found" });
-  if (user.password !== password) return res.status(401).json({ error: "Incorrect password" });
+  let isValid = false;
+  if (isPasswordHash(user.password)) {
+    isValid = verifyHashedPassword(password, user.password);
+  } else {
+    isValid = user.password === password;
+    if (isValid) {
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashPassword(password), user.id);
+    }
+  }
+  if (!isValid) return res.status(401).json({ error: "Incorrect password" });
 
   const { password: _p, invite_token: _t, ...safe } = user;
   res.json(safe);
@@ -50,18 +93,19 @@ app.post("/register", (req, res) => {
   if (!email || !password) return res.status(400).json({ error: "All fields required" });
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Invalid email format" });
 
-  const lEmail = email.toLowerCase();
+  const lEmail = String(email).toLowerCase();
   if (!lEmail.endsWith("@mcgill.ca") && !lEmail.endsWith("@mail.mcgill.ca")) {
     return res.status(400).json({ error: "Use McGill email" });
   }
 
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+  const existing = db.prepare("SELECT id FROM users WHERE lower(email) = ?").get(lEmail);
   if (existing) return res.status(409).json({ error: "Email already registered" });
 
   const role = lEmail.endsWith("@mcgill.ca") && !lEmail.endsWith("@mail.mcgill.ca") ? "owner" : "student";
+  const passwordHash = hashPassword(password);
 
-  const result = db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run(email, password, role);
-  res.json({ id: result.lastInsertRowid, email, role });
+  const result = db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run(lEmail, passwordHash, role);
+  res.json({ id: result.lastInsertRowid, email: lEmail, role });
 });
 
 app.get("/owners", (_req, res) => {
