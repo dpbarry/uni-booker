@@ -98,6 +98,7 @@ export const handleBookingManagerClick = async (e, { toast }) => {
         } catch (err) {
             toast(err.message || 'Failed to open', { error: true });
         }
+        
         return true;
     }
 
