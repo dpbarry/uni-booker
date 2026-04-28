@@ -97,6 +97,9 @@ export const refreshUpcoming = async () => {
     }
     renderList(rows);
     calendar?.setEvents(toEvents(rows));
+
+    const btn = document.getElementById("export-cal-btn");
+    if (btn) btn.style.display = rows.length ? "" : "none";
 };
 
 export const mountUpcoming = async (view) => {
