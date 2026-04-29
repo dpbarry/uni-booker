@@ -1,4 +1,4 @@
-// Dean Barry
+// Dean Barry, Mariana Diaz Betancourt
 
 import { apiFetch, getUser } from './global.js';
 import { openDialog, requestDialogClose, setDialogFooterError } from './dialog.js';
@@ -230,6 +230,10 @@ export const refreshOwnerPolls = async () => {
                 <span class="owner-poll-card-meta">${voteSummary} · ${optSummary}</span>
             </div>
             <div class="owner-poll-card-tools">
+                <button type="button" class="ghost-button press" data-action="copy-poll-link" data-poll-token="${poll.invite_token}" title="Copy invite link">
+                    <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#link" /></svg>
+                    <span>Copy link</span>
+                </button>
                 <button type="button" class="row-icon-button" data-action="delete-poll" data-poll-id="${poll.id}" title="Delete">
                     <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
                 </button>
@@ -360,6 +364,19 @@ export const handlePollManagerClick = async (e, { toast }) => {
             toast('Group meeting deleted.');
         } catch (err) {
             toast(err.message || 'Something went wrong', { error: true });
+        }
+        return true;
+    }
+
+    const copyLinkBtn = e.target.closest('[data-action="copy-poll-link"]');
+    if (copyLinkBtn) {
+        const token = copyLinkBtn.dataset.pollToken;
+        const url = `${location.origin}${location.pathname}#/poll/${token}`;
+        try {
+            await navigator.clipboard.writeText(url);
+            toast('Poll link copied!');
+        } catch (err) {
+            toast('Failed to copy link', { error: true });
         }
         return true;
     }
