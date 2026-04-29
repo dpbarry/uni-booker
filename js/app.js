@@ -1,33 +1,34 @@
-// Dean Barry
+// Dean Barry, Mariana Diaz Betancourt
 
 import {
-    APP_TITLE,
-    authKey,
-    entryMs,
-    getAllUsers,
-    initTheme,
-    pendingInviteKey,
-    pendingPollKey, //
-    signOutAnimateKey,
-    userKey,
-    usersKey,
+  APP_TITLE,
+  authKey,
+  entryMs,
+  getAllUsers,
+  initTheme,
+  pendingInviteKey,
+  pendingPollKey, //
+  signOutAnimateKey,
+  userKey,
+  usersKey,
 } from './global.js';
 import { ensureAuthPage } from './auth.js';
 import { ensureMainPage, getAppView } from './main.js';
 import { openBookingDialog } from './invite-booking.js';
 import { openPollPage } from './group-poll.js';
+import { openResetPage } from './reset-password.js';
 
 const pageContainer = document.getElementById('page-container');
 
 const applyDemoAccounts = () => {
-    if (getAllUsers().length > 0) return;
-    const demo = [
-        { id: 1, email: 'prof@mcgill.ca', role: 'owner' },
-        { id: 2, email: 'student@mail.mcgill.ca', role: 'student' },
-    ];
-    sessionStorage.setItem(usersKey, JSON.stringify(demo));
-    sessionStorage.setItem(userKey, JSON.stringify(demo[0]));
-    sessionStorage.setItem(authKey, '1');
+  if (getAllUsers().length > 0) return;
+  const demo = [
+    { id: 1, email: 'prof@mcgill.ca', role: 'owner' },
+    { id: 2, email: 'student@mail.mcgill.ca', role: 'student' },
+  ];
+  sessionStorage.setItem(usersKey, JSON.stringify(demo));
+  sessionStorage.setItem(userKey, JSON.stringify(demo[0]));
+  sessionStorage.setItem(authKey, '1');
 };
 
 const state = {
@@ -58,6 +59,7 @@ const showTopPage = (which) => {
   document.getElementById('view-app')?.toggleAttribute('hidden', which !== 'app');
   document.getElementById('view-invite')?.toggleAttribute('hidden', which !== 'invite');
   document.getElementById('view-poll')?.toggleAttribute('hidden', which !== 'poll');
+  document.getElementById('view-reset')?.toggleAttribute('hidden', which !== 'reset');
 };
 
 async function enterMainPage() {
@@ -118,6 +120,22 @@ async function enterPollPage(token) {
   }
 }
 
+async function enterResetPage(token) {
+  state.busy = true;
+  state.animateNextEntry = false;
+  try {
+    await ensureMainPage(pageContainer);
+    showTopPage('reset');
+    const resetView = document.getElementById('view-reset');
+    if (resetView) resetView.classList.add('is-visible');
+    document.documentElement.classList.remove('first-paint-main');
+    document.getElementById('view-auth')?.remove();
+    await openResetPage(token);
+  } finally {
+    state.busy = false;
+  }
+}
+
 const route = async () => {
   document.title = APP_TITLE;
   if (state.busy) return;
@@ -127,6 +145,9 @@ const route = async () => {
 
   const pollMatch = /^#\/poll\/(.+)$/.exec(location.hash);
   const pollToken = pollMatch ? decodeURIComponent(pollMatch[1]) : null;
+
+  const resetMatch = /^#\/reset\/(.+)$/.exec(location.hash);
+  const resetToken = resetMatch ? decodeURIComponent(resetMatch[1]) : null;
 
   if (!isAuthed()) {
     if (inviteToken) {
@@ -139,6 +160,12 @@ const route = async () => {
       location.replace('#/signin');
       return;
     }
+    if (resetToken) {
+      await enterResetPage(resetToken);
+      return;
+    }
+
+
     if (location.hash !== '#/signin') {
       location.replace('#/signin');
       return;
@@ -180,6 +207,12 @@ const route = async () => {
     await enterPollPage(pollToken);
     return;
   }
+
+  if (resetToken) {
+    await enterResetPage(resetToken);
+    return;
+  }
+
 
   if (location.hash && location.hash !== '#/') {
     location.replace('#/');
