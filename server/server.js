@@ -1,3 +1,5 @@
+// Zheng Ye
+
 const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
@@ -485,14 +487,12 @@ app.post("/requests", async (req, res) => {
 
 app.get("/requests/owner/:ownerId", (req, res) => {
   const rows = db.prepare(
-      `
-    SELECT r.id, r.date, r.time, r.message, r.status, r.created_at,
-           u.email AS student_email
+    `SELECT r.id, r.date, r.time, r.message, r.status, r.created_at,
+    u.email AS student_email
     FROM requests r
     JOIN users u ON u.id = r.student_id
     WHERE r.owner_id = ? AND r.status = 'pending'
-    ORDER BY r.date ASC, r.time ASC
-  `,
+    ORDER BY r.date ASC, r.time ASC`,
     ).all(req.params.ownerId);
 
   res.json(rows);
@@ -500,17 +500,16 @@ app.get("/requests/owner/:ownerId", (req, res) => {
 
 app.patch("/requests/:id", async (req, res) => {
   const { status } = req.body;
+
   if (status !== "accepted" && status !== "declined") 
     return res.status(400).json({ error: "status must be accepted or declined" });
   
   const request = db.prepare(
-      `
-    SELECT r.*, u_student.email AS student_email, u_owner.email AS owner_email
+      `SELECT r.*, u_student.email AS student_email, u_owner.email AS owner_email
     FROM requests r
     JOIN users u_student ON u_student.id = r.student_id
     JOIN users u_owner   ON u_owner.id   = r.owner_id
-    WHERE r.id = ? AND r.status = 'pending'
-  `,
+    WHERE r.id = ? AND r.status = 'pending'`,
     ).get(req.params.id);
 
   if (!request)
@@ -518,12 +517,10 @@ app.patch("/requests/:id", async (req, res) => {
 
   if (status === "accepted") {
     db.transaction(() => {
-      const slot = db
-        .prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-        .run(request.owner_id, request.date, request.time, "requested", nowIso());
+      const slot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
+      .run(request.owner_id, request.date, request.time, "requested", nowIso());
 
       db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(request.student_id, slot.lastInsertRowid, nowIso());
-
       db.prepare("UPDATE requests SET status = 'accepted' WHERE id = ?").run(request.id);
     })();
 

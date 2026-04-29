@@ -1,3 +1,5 @@
+// Zheng Ye
+
 import { apiFetch, getUser, ApiError } from './global.js';
 import { createDialog, openDialog, requestDialogClose } from './dialog.js';
 import { showToast } from './toast.js';
@@ -63,20 +65,19 @@ const openRequestDialog = (ownerId) => {
     });
 
     const form = dialog.querySelector('.dialog-form');
+    const submitBtn = form.querySelector('.request-send-btn');
     const dateInput = form.querySelector('input[name="date"]');
     const timeInput = form.querySelector('input[name="time"]');
     const dateWarning = form.querySelector('#request-date-warning');
+    const timePickerHost = form.querySelector('.request-time-picker');
     const requestingTime = form.querySelector('[data-requesting-time]');
     const calendarHost = form.querySelector('.request-picker-calendar');
-    const timePickerHost = form.querySelector('.request-time-picker');
-    const submitBtn = form.querySelector('.request-send-btn');
+
 
     const syncSubmit = () => {
         const valid = isFutureDateTime(dateInput.value, timeInput.value);
         submitBtn.disabled = !valid;
-        requestingTime.textContent = valid
-            ? `${formatShortDate(dateInput.value)} at ${formatClockTime(timeInput.value)}`
-            : '';
+        requestingTime.textContent = valid ? `${formatShortDate(dateInput.value)} at ${formatClockTime(timeInput.value)}` : '';
     };
 
     const setDateWarning = (msg) => {
@@ -92,12 +93,14 @@ const openRequestDialog = (ownerId) => {
             if (date < todayYmd()) {
                 setDateWarning('Choose today or a future date.');
                 syncSubmit();
+
                 return;
             }
             setDateWarning('');
             syncSubmit();
         },
     });
+
     calendar.setSelected(defaultDate);
     calendar.goto(defaultDate);
     const timePicker = createTimePicker(timePickerHost, {
@@ -131,14 +134,17 @@ const openRequestDialog = (ownerId) => {
                 body: { student_id: viewer.id, owner_id: ownerId, date, time: `${time}:00`, message },
             });
             requestDialogClose(dialog);
+            
             showToast({ content: '<span>Meeting request sent</span>', timeout: 2000 });
-        } catch (err) {
+        }
+        catch (err) {
             showToast({
                 content: `<span>${escapeHtml(err.message || 'Could not send request.')}</span>`,
                 variant: 'error',
                 timeout: 4500,
             });
             submitBtn.disabled = false;
+
             syncSubmit();
         }
     });
