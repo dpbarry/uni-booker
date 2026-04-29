@@ -311,7 +311,8 @@ export const handleSlotManagerSubmit = async (e) => {
                     weeks: repeatWeeks,
                 },
             });
-        } else {
+        } 
+        else {
             await apiFetch('/slots/create', {
                 method: 'POST',
                 body: {
