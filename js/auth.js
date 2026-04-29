@@ -1,4 +1,4 @@
-// Dean Barry
+// Dean Barry, Mariana Diaz Betancourt
 
 import {
     API_BASE,
@@ -48,7 +48,7 @@ const renderSavedAccounts = (onSignIn) => {
     };
 };
 
-export const ensureAuthPage = async (pageContainer, onSignIn, {append = false} = {}) => {
+export const ensureAuthPage = async (pageContainer, onSignIn, { append = false } = {}) => {
     if (!document.getElementById('view-auth')) {
         if (append) {
             await appendPage(pageContainer, AUTH_PAGE_URL);
@@ -118,8 +118,8 @@ export const ensureAuthPage = async (pageContainer, onSignIn, {append = false} =
             try {
                 const res = await fetch(`${API_BASE}${path}`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({email, password}),
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password }),
                 });
                 const data = await res.json();
                 if (!res.ok) return showServerErr(data.error || failMsg);
@@ -138,6 +138,41 @@ export const ensureAuthPage = async (pageContainer, onSignIn, {append = false} =
 
         registerBtn.addEventListener('click', () => {
             void submit('/register', 'Registration failed');
+        });
+
+        const forgotBtn = document.getElementById('auth-forgot-button');
+        forgotBtn?.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            if (!email) {
+                setError('auth-email', 'Enter your email first');
+                return;
+            }
+            if (!EMAIL_RE.test(email)) {
+                setError('auth-email', 'Invalid format');
+                return;
+            }
+            try {
+                forgotBtn.disabled = true;
+                const res = await fetch(`${API_BASE}/password-reset/request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    setError('auth-email', data.error || 'Failed to send reset email');
+                    return;
+                }
+                setError('auth-email', '');
+                const warning = document.getElementById('warning-auth-email');
+                warning.textContent = 'Reset email sent!';
+                warning.style.opacity = '1';
+                warning.style.color = 'green';
+            } catch {
+                setError('auth-email', 'Could not reach server');
+            } finally {
+                forgotBtn.disabled = false;
+            }
         });
     }
 
