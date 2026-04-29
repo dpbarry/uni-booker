@@ -1,4 +1,4 @@
-//Zheng Ye, Dean Barry
+//Zheng Ye, Dean Barry, Mariana Diaz Betancourt
 
 const Database = require("better-sqlite3");
 const crypto = require("crypto");
@@ -59,6 +59,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL,
     title TEXT NOT NULL,
+    invite_token TEXT UNIQUE,
     created_at TEXT,
     FOREIGN KEY (owner_id) REFERENCES users(id)
   );
@@ -86,6 +87,14 @@ db.exec(`
     email TEXT NOT NULL,
     token TEXT NOT NULL UNIQUE,
     FOREIGN KEY (poll_id) REFERENCES group_polls(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
   );
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot_student_unique ON bookings(slot_id, student_id);
@@ -116,5 +125,9 @@ if (userCount === 0) {
   db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("student@mail.mcgill.ca", hashPassword("123"), "student");
   console.log("Seed users created: prof@mcgill.ca, student@mail.mcgill.ca (password: 123)");
 }
+
+if (!hasColumn("group_polls", "invite_token")) db.exec("ALTER TABLE group_polls ADD COLUMN invite_token TEXT");
+
+if (!hasColumn("group_polls", "invite_token")) db.exec("ALTER TABLE group_polls ADD COLUMN invite_token TEXT");
 
 module.exports = db;
