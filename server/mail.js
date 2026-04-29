@@ -3,7 +3,8 @@
 const { Resend } = require("resend");
 
 const FROM = process.env.RESEND_FROM;
-const client = new Resend(process.env.RESEND_API_KEY);
+const API_KEY = process.env.RESEND_API_KEY;
+const client = API_KEY ? new Resend(API_KEY) : null;
 const DEMO_MAIL_TO = process.env.DEMO_MAIL_TO?.trim();
 
 const resolveTo = (to) => {
@@ -15,8 +16,16 @@ const resolveTo = (to) => {
 };
 
 const send = async ({ to, subject, text }) => {
-  const { error } = await client.emails.send({ from: FROM, to: resolveTo(to), subject, text });
-  if (error) console.error("[mail] send failed:", error.message);
+  if (!client || !FROM) {
+    console.error("[mail] send skipped: missing RESEND_API_KEY or RESEND_FROM");
+    return;
+  }
+  try {
+    const { error } = await client.emails.send({ from: FROM, to: resolveTo(to), subject, text });
+    if (error) console.error("[mail] send failed:", error.message);
+  } catch (err) {
+    console.error("[mail] send failed:", err?.message || err);
+  }
 };
 
 const whenLabel = (date, time) => `${date} at ${String(time).slice(0, 5)}`;

@@ -638,9 +638,10 @@ app.delete("/requests/:id", (req, res) => {
 
 app.post("/group-polls", async (req, res) => {
   const { owner_id, title, slots } = req.body;
-  if (!owner_id || !title || !Array.isArray(slots) || slots.length === 0) {
+  if (!owner_id || !Array.isArray(slots) || slots.length === 0) {
     return res.status(400).json({ error: "Missing fields" });
   }
+  const pollTitle = String(title || "").trim() || "Group meeting";
 
   const owner = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
   if (!owner) return res.status(404).json({ error: "Owner not found" });
@@ -648,7 +649,7 @@ app.post("/group-polls", async (req, res) => {
   const created = db.transaction(() => {
     const poll = db
       .prepare("INSERT INTO group_polls (owner_id, title, created_at) VALUES (?, ?, ?)")
-      .run(owner_id, title, nowIso());
+      .run(owner_id, pollTitle, nowIso());
     const pollId = poll.lastInsertRowid;
     const insertSlot = db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)");
     let inserted = 0;
@@ -743,6 +744,8 @@ app.post("/group-polls/invite/:token/vote", (req, res) => {
 
   const viewer_id = Number(req.body.viewer_id);
   if (!viewer_id) return res.status(400).json({ error: "viewer_id is required" });
+  const viewer = db.prepare("SELECT id, email FROM users WHERE id = ?").get(viewer_id);
+  if (!viewer || !viewer.email) return res.status(404).json({ error: "Viewer not found" });
 
   const requestedPollId = Number(req.body.poll_id);
   const poll = Number.isFinite(requestedPollId) && requestedPollId > 0
@@ -768,7 +771,7 @@ app.post("/group-polls/invite/:token/vote", (req, res) => {
       "INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)",
     );
     for (const slotId of slot_ids) {
-      insertVote.run(slotId, viewer_id, "");
+      insertVote.run(slotId, viewer.id, String(viewer.email).toLowerCase());
     }
   })();
 

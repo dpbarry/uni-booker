@@ -195,10 +195,14 @@ const renderOnePollCard = (entry, viewer, isOwnerViewing) => {
         : 'Tap a time to add or remove your vote';
 
     const cardVariant = isOwnerViewing ? ' booking-poll-card--owner' : '';
+    const rawTitle = String(poll.title || '').trim();
+    const titleText = !rawTitle || rawTitle.toLowerCase() === 'group meeting'
+        ? 'Group meeting'
+        : `Group meeting: ${escapeHtml(rawTitle)}`;
     return `
         <section class="booking-poll-card${cardVariant}" data-poll-id="${poll.id}">
             <header class="booking-poll-head">
-                <h3>Group meeting: ${escapeHtml(poll.title)}</h3>
+                <h3>${titleText}</h3>
                 <p>${subtitle}</p>
             </header>
             <div class="poll-vote-options">${optionsHtml}</div>
