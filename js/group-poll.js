@@ -1,4 +1,4 @@
-// Dean Barry
+// Dean Barry, Mariana Diaz Betancourt
 
 import { apiFetch, getUser } from './global.js';
 import { showToast } from './toast.js';
