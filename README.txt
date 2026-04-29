@@ -10,4 +10,4 @@ Table of Contributions:
 
 
 Code not Coded by Ourselves:
-Zheng Ye: .notif-dot css selector in main.css (8 lines), Dialog html in openRequestDialog in invite-booking.js (33 lines)
+Zheng Ye: .notif-dot css selector in main.css (8 lines), Dialog html in openRequestDialog in invite-booking.js (33 lines), SQL query for GET /api/export-calendar (11 lines)
