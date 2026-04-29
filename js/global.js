@@ -1,4 +1,4 @@
-// Dean Barry
+// Dean Barry, Mariana Diaz Betancourt
 
 export const API_BASE = '';
 
