@@ -1,883 +1,537 @@
 // Zheng Ye, Dean Barry, Mariana Diaz Betancourt
 
-const express = require("express");
-const path = require("path");
-const crypto = require("crypto");
-const db = require("./db");
-const mail = require("./mail");
+import { apiFetch, getUser, ApiError } from './global.js';
+import { createDialog, openDialog, requestDialogClose } from './dialog.js';
+import { showToast } from './toast.js';
+import { escapeHtml, formatClockTime, formatShortDate, initialsFromEmail, isFutureDateTime, toHm, toYmd, todayYmd } from './format.js';
+import { createCalendar } from './calendar.js';
+import { createTimePicker } from './time-picker.js';
 
-const app = express();
-app.use(express.static(path.join(__dirname, "..")));
-app.use(express.json());
+const tokenCache = new Map();
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PASSWORD_HASH_PREFIX = "scrypt";
-const SCRYPT_N = 16384;
-const SCRYPT_R = 8;
-const SCRYPT_P = 1;
-const SALT_BYTES = 16;
-const KEY_BYTES = 64;
-
-const nowIso = () => new Date().toISOString();
-const hashPassword = (password) => {
-  const salt = crypto.randomBytes(SALT_BYTES).toString("hex");
-  const key = crypto.scryptSync(password, salt, KEY_BYTES, {
-    N: SCRYPT_N,
-    r: SCRYPT_R,
-    p: SCRYPT_P,
-  }).toString("hex");
-  return `${PASSWORD_HASH_PREFIX}$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${key}`;
+const nextRequestDateTime = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(14, 0, 0, 0);
+    return d;
 };
-const verifyHashedPassword = (password, storedHash) => {
-  if (typeof storedHash !== "string") return false;
-  const parts = storedHash.split("$");
-  if (parts.length !== 6 || parts[0] !== PASSWORD_HASH_PREFIX) return false;
-  const [, nRaw, rRaw, pRaw, salt, keyHex] = parts;
-  const n = Number(nRaw);
-  const r = Number(rRaw);
-  const p = Number(pRaw);
-  if (!n || !r || !p || !salt || !keyHex) return false;
-  const derived = crypto.scryptSync(password, salt, Buffer.from(keyHex, "hex").length, {
-    N: n,
-    r,
-    p,
-  });
-  const expected = Buffer.from(keyHex, "hex");
-  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
-};
-const isPasswordHash = (value) => typeof value === "string" && value.startsWith(`${PASSWORD_HASH_PREFIX}$`);
-const isPast = (date, time) => {
-  const when = new Date(`${date}T${time}`);
-  return Number.isNaN(when.getTime()) || when.getTime() < Date.now();
-};
-const expiredSlotWhere = "datetime(date || ' ' || substr(time, 1, 5)) < datetime('now', 'localtime')";
 
-const cleanupExpired = db.transaction(() => {
-  const bookingsDeleted = db
-    .prepare(
-      `
-    DELETE FROM bookings
-    WHERE slot_id IN (
-      SELECT id
-      FROM slots
-      WHERE ${expiredSlotWhere}
-    )
-  `,
-    )
-    .run().changes;
-  const slotsDeleted = db.prepare(`DELETE FROM slots WHERE ${expiredSlotWhere}`).run().changes;
-  return { bookingsDeleted, slotsDeleted };
-});
+const openRequestDialog = (ownerId) => {
+    const start = nextRequestDateTime();
 
-const toIcsDate = (date, time) => {
-  const d = new Date(`${date}T${time.slice(0, 5)}`);
-  const iso = d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const defaultDate = toYmd(start);
+    const defaultTime = toHm(start);
 
-  return iso;
-}
+    const dialog = createDialog({
+        className: 'request-dialog',
+        content: `
+            <form class="dialog-form request-meeting-form" data-form="request-meeting">
+                <header class="dialog-header">
+                    <h2 class="dialog-title">Request a meeting</h2>
+                    <button type="button" class="icon-button press" data-action="close-dialog" title="Close">
+                        <svg width="18" height="18" viewBox="0 0 24 24"><use href="assets/icons.svg#x" /></svg>
+                    </button>
+                </header>
 
-const escapeIcs = (string) => {
-  if (string === null || string === undefined) return "";
-  const formattedString = String(string).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+                <div class="dialog-field dialog-field--date">
+                    <div class="dialog-label-row">
+                        <span class="dialog-label">Date</span>
+                        <span class="dialog-field-warning" id="request-date-warning" aria-live="polite"></span>
+                    </div>
 
-  return formattedString;
-}
+                    <input type="hidden" name="date" value="${defaultDate}" required>
+                    <div class="request-picker-calendar"></div>
+                </div>
 
-const buildIcs = (events) => {
-  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+                <div class="dialog-field dialog-field--time">
+                    <span class="dialog-label">Time</span>
+                    <input type="hidden" name="time" value="${defaultTime}" required>
+                    <div class="request-time-picker"></div>
+                </div>
 
-  const vevents = events.map((event) => {
-        const start = toIcsDate(event.date, event.time);
+                <div class="dialog-field dialog-field--message">
+                    <span class="dialog-label">Message (optional)</span>
+                    <textarea name="message" class="request-message-input" rows="4" placeholder="Add a note…"></textarea>
+                </div>
 
-        const endDate = new Date(`${event.date}T${event.time.slice(0, 5)}`);
-        endDate.setMinutes(endDate.getMinutes() + 60);
-        const end = endDate.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+                <footer class="dialog-footer">
+                    <div class="requesting-preview" aria-live="polite">
+                        <span class="requesting-preview-label">Requesting</span>
+                        <span class="requesting-preview-value" data-requesting-time></span>
+                    </div>
+                    <button type="submit" class="primary-button press request-send-btn">Send request</button>
+                </footer>
+            </form>
+        `,
+    });
 
-        const summary = escapeIcs(event.summary);
-        const uid = `booking-${event.booking_id}@uni-booker`; 
-        const description = escapeIcs(event.description);
-
-        const fields = ["BEGIN:VEVENT", `UID:${uid}`, `DTSTAMP:${stamp}`,`DTSTART:${start}`, `DTEND:${end}`,
-                        `SUMMARY:${summary}`,description ? `DESCRIPTION:${description}` : null, "END:VEVENT",
-                      ];
-        const result = fields.filter(Boolean).join("\r\n");
-
-        return result;
-  });
-
-   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//UniBooker//EN", ...vevents, "END:VCALENDAR"].join("\r\n");
-}
+    const form = dialog.querySelector('.dialog-form');
+    const submitBtn = form.querySelector('.request-send-btn');
+    const dateInput = form.querySelector('input[name="date"]');
+    const timeInput = form.querySelector('input[name="time"]');
+    const dateWarning = form.querySelector('#request-date-warning');
+    const timePickerHost = form.querySelector('.request-time-picker');
+    const requestingTime = form.querySelector('[data-requesting-time]');
+    const calendarHost = form.querySelector('.request-picker-calendar');
 
 
+    const syncSubmit = () => {
+        const valid = isFutureDateTime(dateInput.value, timeInput.value);
+        submitBtn.disabled = !valid;
+        requestingTime.textContent = valid ? `${formatShortDate(dateInput.value)} at ${formatClockTime(timeInput.value)}` : '';
+    };
 
-app.post("/login", (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    const setDateWarning = (msg) => {
+        dateWarning.textContent = msg || '';
+        dateWarning.style.opacity = msg ? '1' : '0';
+    };
 
-  const lEmail = String(email).toLowerCase();
-  const user = db.prepare("SELECT * FROM users WHERE lower(email) = ?").get(lEmail);
-  if (!user) return res.status(404).json({ error: "User not found" });
-  let isValid = false;
-  if (isPasswordHash(user.password)) {
-    isValid = verifyHashedPassword(password, user.password);
-  } else {
-    isValid = user.password === password;
-    if (isValid) {
-      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashPassword(password), user.id);
-    }
-  }
-  if (!isValid) return res.status(401).json({ error: "Incorrect password" });
+    const calendar = createCalendar(calendarHost, {
+        mode: 'picker',
+        view: 'month',
+        onSelect: (date) => {
+            dateInput.value = date;
+            if (date < todayYmd()) {
+                setDateWarning('Choose today or a future date.');
+                syncSubmit();
 
-  const { password: _p, invite_token: _t, ...safe } = user;
-  res.json(safe);
-});
+                return;
+            }
+            setDateWarning('');
+            syncSubmit();
+        },
+    });
+    calendar.setSelected(defaultDate);
+    calendar.goto(defaultDate);
 
-app.post("/register", (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "All fields required" });
-  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Invalid email format" });
+    const timePicker = createTimePicker(timePickerHost, {
+        value: defaultTime,
+        onChange: (next) => {
+            timeInput.value = next;
+            syncSubmit();
+        },
+    });
+    dialog.addEventListener('close', () => timePicker?.destroy(), { once: true });
 
-  const lEmail = String(email).toLowerCase();
-  if (!lEmail.endsWith("@mcgill.ca") && !lEmail.endsWith("@mail.mcgill.ca")) {
-    return res.status(400).json({ error: "Use McGill email" });
-  }
+    if (defaultDate >= todayYmd()) setDateWarning('');
+    else setDateWarning('Choose today or a future date.');
+    syncSubmit();
 
-  const existing = db.prepare("SELECT id FROM users WHERE lower(email) = ?").get(lEmail);
-  if (existing) return res.status(409).json({ error: "Email already registered" });
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const viewer = getUser();
+        if (viewer?.role !== 'student') return;
 
-  const role = lEmail.endsWith("@mcgill.ca") && !lEmail.endsWith("@mail.mcgill.ca") ? "owner" : "student";
-  const passwordHash = hashPassword(password);
+        const date = dateInput.value;
+        const time = timeInput.value;
+        const message = form.elements.message.value.trim();
+        if (!isFutureDateTime(date, time)) return;
 
-  const result = db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run(lEmail, passwordHash, role);
-  res.json({ id: result.lastInsertRowid, email: lEmail, role });
-});
+        submitBtn.disabled = true;
 
-app.get("/owners", (_req, res) => {
-  res.json(
-    db
-      .prepare(
-        `
-      SELECT id, email
-      FROM users
-      WHERE role = 'owner'
-        AND EXISTS (
-          SELECT 1
-          FROM slots s
-          WHERE s.owner_id = users.id
-            AND s.active = 1
-            AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-        )
-      ORDER BY email
-    `,
-      )
-      .all(),
-  );
-});
+        try {
+            await apiFetch('/requests', {
+                method: 'POST',
+                body: { student_id: viewer.id, owner_id: ownerId, date, time: `${time}:00`, message },
+            });
+            requestDialogClose(dialog);
 
-app.post("/owners/:id/invite-token", (req, res) => {
-  const owner = db.prepare("SELECT id, invite_token FROM users WHERE id = ? AND role = 'owner'").get(req.params.id);
-  if (!owner) return res.status(404).json({ error: "Owner not found" });
-  let token = owner.invite_token;
-  if (!token) {
-    token = crypto.randomBytes(16).toString("base64url");
-    db.prepare("UPDATE users SET invite_token = ? WHERE id = ?").run(token, owner.id);
-  }
-  res.json({ token });
-});
-
-app.get("/invite/:token", (req, res) => {
-  const owner = db.prepare("SELECT id, email FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
-  if (!owner) return res.status(404).json({ error: "Invite link not found" });
-  const viewerId = Number(req.query.viewer) || 0;
-  const slots = db
-    .prepare(
-      `
-    SELECT s.id, s.date, s.time, s.active,
-           b.id AS booking_id, b.student_id AS booker_id
-    FROM slots s
-    LEFT JOIN bookings b ON b.slot_id = s.id
-    WHERE s.owner_id = ?
-      AND s.active = 1
-      AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-      AND (b.id IS NULL OR b.student_id = ?)
-    ORDER BY s.date ASC, s.time ASC
-  `,
-    )
-    .all(owner.id, viewerId);
-  res.json({ owner, slots });
-});
-
-app.post("/slots/create", (req, res) => {
-  const { owner_id, date, time, type } = req.body;
-  if (!owner_id || !date || !time) return res.status(400).json({ error: "Missing fields" });
-  if (isPast(date, time)) return res.status(400).json({ error: "Cannot create a slot in the past" });
-
-  const result = db
-    .prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-    .run(owner_id, date, time, type ?? "onetime", nowIso());
-
-  res.json({ id: result.lastInsertRowid });
-});
-
-app.post("/slots/recurring", (req, res) => {
-  const { owner_id, days, time, start_date, weeks } = req.body;
-
-  if (!owner_id || !Array.isArray(days) || !days.length || !time || !start_date || !weeks)
-    return res.status(400).json({ error: "Missing fields" });
-  
-  if (weeks < 1 || weeks > 52)
-    return res.status(400).json({ error: "Invalid Number of Weeks selected" });
-
-  if (!days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6))
-    return res.status(400).json({ error: "days must be integers 0–6 (Sun=0 … Sat=6)" });
-
-  const pad = (n) => String(n).padStart(2, "0");
-  const toYmd = (d) =>
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  
-  const [sy, sm, sd] = start_date.split("-").map(Number);
-  const anchorDate = new Date(sy, sm - 1, sd);
-
-  const insertSlot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, 'recurring', 1, ?)");
-
-  const insertMany = db.transaction(() => {
-    const slots = [];
-
-    const anchorDay = anchorDate.getDay();    
-    for (let week = 0; week < weeks; week++) {
-      for (let day of days) {
-        const daysOffset = week * 7 + (day - anchorDay);
-        const slotDate = new Date(anchorDate);
-        slotDate.setDate(slotDate.getDate() + daysOffset);
-
-        const dateStr = toYmd(slotDate);
-        if (!isPast(dateStr, time)) {
-          const result = insertSlot.run(owner_id, dateStr, time, nowIso());
-          slots.push(result.lastInsertRowid);
+            showToast({ content: '<span>Meeting request sent</span>', timeout: 2000 });
         }
-      }
-    }
+        catch (err) {
+            showToast({
+                content: `<span>${escapeHtml(err.message || 'Could not send request.')}</span>`,
+                variant: 'error',
+                timeout: 4500,
+            });
+            submitBtn.disabled = false;
 
-    return slots;
-  });
-
-  const created = insertMany();
-  res.json({ created: created.length, ids: created });
-});
-
-app.get("/slots", (_req, res) => {
-  res.json(db.prepare("SELECT * FROM slots").all());
-});
-
-app.get("/slots/active", (_req, res) => {
-  res.json(
-    db
-      .prepare(
-        `
-      SELECT *
-      FROM slots
-      WHERE active = 1
-        AND datetime(date || ' ' || substr(time, 1, 5)) >= datetime('now', 'localtime')
-    `,
-      )
-      .all(),
-  );
-});
-
-app.get("/slots/owner/:ownerId", (req, res) => {
-  res.json(
-    db
-      .prepare(
-        `
-      SELECT s.id, s.date, s.time, s.active, s.type,
-             CASE WHEN s.active = 1 THEN b.id ELSE NULL END AS booking_id,
-             CASE WHEN s.active = 1 THEN u.email ELSE NULL END AS booker_email
-      FROM slots s
-      LEFT JOIN bookings b ON b.slot_id = s.id
-      LEFT JOIN users u ON u.id = b.student_id
-      WHERE s.owner_id = ?
-        AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-      ORDER BY s.date ASC, s.time ASC
-    `,
-      )
-      .all(req.params.ownerId),
-  );
-});
-
-app.put("/slots/:id/toggle", async (req, res) => {
-  const slot = db
-    .prepare(
-      `
-    SELECT s.id, s.date, s.time, s.active,
-           owner.email AS owner_email,
-           b.id AS booking_id,
-           student.email AS booker_email
-    FROM slots s
-    JOIN users owner ON owner.id = s.owner_id
-    LEFT JOIN bookings b ON b.slot_id = s.id
-    LEFT JOIN users student ON student.id = b.student_id
-    WHERE s.id = ?
-  `,
-    )
-    .get(req.params.id);
-  if (!slot) return res.status(404).json({ error: "Slot not found" });
-
-  const nextActive = slot.active ? 0 : 1;
-  db.prepare("UPDATE slots SET active = ? WHERE id = ?").run(nextActive, slot.id);
-
-  if (!nextActive) {
-    db.prepare("DELETE FROM bookings WHERE slot_id = ?").run(slot.id);
-    if (slot.booker_email) {
-      await mail.notifySlotDeactivated({
-        to: slot.booker_email,
-        ownerEmail: slot.owner_email,
-        date: slot.date,
-        time: slot.time,
-      });
-    }
-  }
-
-  res.json({ message: "Slot toggled", active: Boolean(nextActive) });
-});
-
-app.delete("/slots/:id", async (req, res) => {
-  const slot = db
-    .prepare(
-      `
-    SELECT s.id, s.date, s.time, s.owner_id, u.email AS owner_email,
-           b.id AS booking_id, bu.email AS booker_email
-    FROM slots s
-    JOIN users u ON u.id = s.owner_id
-    LEFT JOIN bookings b ON b.slot_id = s.id
-    LEFT JOIN users bu ON bu.id = b.student_id
-    WHERE s.id = ?
-  `,
-    )
-    .get(req.params.id);
-  if (!slot) return res.status(404).json({ error: "Slot not found" });
-
-  db.prepare("DELETE FROM bookings WHERE slot_id = ?").run(slot.id);
-  db.prepare("DELETE FROM slots WHERE id = ?").run(slot.id);
-
-  if (slot.booker_email) {
-    await mail.notifySlotDeleted({
-      to: slot.booker_email,
-      ownerEmail: slot.owner_email,
-      date: slot.date,
-      time: slot.time,
-    });
-  }
-  res.json({ message: "Slot deleted" });
-});
-
-app.post("/bookings", async (req, res) => {
-  const { student_id, slot_id } = req.body;
-  if (!student_id || !slot_id) return res.status(400).json({ error: "Missing fields" });
-
-  const student = db.prepare("SELECT id, email FROM users WHERE id = ?").get(student_id);
-  if (!student) return res.status(404).json({ error: "Student not found" });
-
-  const slot = db
-    .prepare(
-      `
-    SELECT s.id, s.date, s.time, s.active, s.owner_id, u.email AS owner_email
-    FROM slots s JOIN users u ON u.id = s.owner_id
-    WHERE s.id = ?
-  `,
-    )
-    .get(slot_id);
-  if (!slot) return res.status(404).json({ error: "Slot not found" });
-  if (!slot.active) return res.status(400).json({ error: "Slot is not active" });
-  if (slot.owner_id === Number(student_id)) return res.status(400).json({ error: "Cannot book your own slot" });
-  if (isPast(slot.date, slot.time)) return res.status(400).json({ error: "Slot has already passed" });
-
-  try {
-    const result = db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(student_id, slot_id, nowIso());
-
-    await mail.notifySlotBooked({
-      to: slot.owner_email,
-      studentEmail: student.email,
-      date: slot.date,
-      time: slot.time,
+            syncSubmit();
+        }
     });
 
-    res.json({ id: result.lastInsertRowid });
-  } catch (err) {
-    if (err && err.code === "SQLITE_CONSTRAINT_UNIQUE") {
-      return res.status(409).json({ error: "Slot no longer available" });
-    }
-    throw err;
-  }
-});
-
-app.get("/bookings/slot/:slotId", (req, res) => {
-  res.json(db.prepare("SELECT * FROM bookings WHERE slot_id = ?").all(req.params.slotId));
-});
-
-app.get("/bookings/student/:studentId", (req, res) => {
-  res.json(db.prepare("SELECT * FROM bookings WHERE student_id = ?").all(req.params.studentId));
-});
-
-app.delete("/bookings/:id", async (req, res) => {
-  const row = db
-    .prepare(
-      `
-    SELECT b.id, s.date, s.time, s.owner_id,
-           owner.email AS owner_email,
-           student.email AS student_email
-    FROM bookings b
-    JOIN slots s ON s.id = b.slot_id
-    JOIN users owner ON owner.id = s.owner_id
-    JOIN users student ON student.id = b.student_id
-    WHERE b.id = ?
-  `,
-    )
-    .get(req.params.id);
-  if (!row) return res.status(404).json({ error: "Booking not found" });
-
-  db.prepare("DELETE FROM bookings WHERE id = ?").run(row.id);
-
-  const cancelledByRole = req.body?.cancelled_by_role === "owner" ? "owner" : "student";
-  if (cancelledByRole === "owner") {
-    await mail.notifyBookingCancelledByOwner({
-      to: row.student_email,
-      ownerEmail: row.owner_email,
-      date: row.date,
-      time: row.time,
-    });
-  } else {
-    await mail.notifyBookingCancelled({
-      to: row.owner_email,
-      studentEmail: row.student_email,
-      date: row.date,
-      time: row.time,
-    });
-  }
-  res.json({ message: "Booking cancelled" });
-});
-
-app.get("/pins/:studentId", (req, res) => {
-  res.json(
-    db
-      .prepare(
-        `
-      SELECT u.id, u.email
-      FROM pinned_profs p JOIN users u ON u.id = p.owner_id
-      WHERE p.student_id = ?
-      ORDER BY u.email
-    `,
-      )
-      .all(req.params.studentId),
-  );
-});
-
-app.post("/pins", (req, res) => {
-  const { student_id, owner_id } = req.body;
-  if (!student_id || !owner_id) return res.status(400).json({ error: "Missing fields" });
-  db.prepare("INSERT OR IGNORE INTO pinned_profs (student_id, owner_id) VALUES (?, ?)").run(student_id, owner_id);
-  res.json({ message: "Pinned" });
-});
-
-app.delete("/pins/:studentId/:ownerId", (req, res) => {
-  db.prepare("DELETE FROM pinned_profs WHERE student_id = ? AND owner_id = ?").run(req.params.studentId, req.params.ownerId);
-  res.json({ message: "Unpinned" });
-});
-
-app.get("/upcoming/:userId", (req, res) => {
-  const rows = db
-    .prepare(
-      `
-    SELECT b.id AS booking_id, s.id AS slot_id, s.date, s.time,
-           CASE WHEN s.owner_id = ? THEN 'owner' ELSE 'booker' END AS role,
-           CASE WHEN s.owner_id = ? THEN student.email ELSE owner.email END AS counterparty_email
-    FROM bookings b
-    JOIN slots s ON s.id = b.slot_id
-    JOIN users owner ON owner.id = s.owner_id
-    JOIN users student ON student.id = b.student_id
-    WHERE (s.owner_id = ? OR b.student_id = ?)
-      AND s.active = 1
-      AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-    ORDER BY s.date ASC, s.time ASC
-  `,
-    )
-    .all(req.params.userId, req.params.userId, req.params.userId, req.params.userId);
-  res.json(rows);
-});
-
-
-app.post("/requests", async (req, res) => {
-  const { student_id, owner_id, date, time, message } = req.body;
-  if (!student_id || !owner_id || !date || !time)
-    return res.status(400).json({error: "Missing fields"});
-
-  if (isPast(date, time))
-    return res.status(400).json({error: "Cannot request a time in the past"});
-
-  const student = db.prepare("SELECT id, email FROM users WHERE id = ?").get(student_id);
-  if (!student)
-    return res.status(404).json({error: "Student not found"});
-
-  const owner = db.prepare("SELECT id, email FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
-  if (!owner)
-    return res.status(404).json({error: "Professor not found"});
-
-  const result = db.prepare("INSERT INTO requests (student_id, owner_id, date, time, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(student_id, owner_id, date, time, message ?? null, "pending", nowIso());
-
-  await mail.notifyMeetingRequested({ to: owner.email, studentEmail: student.email, date, time });
-
-  res.json({id: result.lastInsertRowid});
-});
-
-app.get("/requests/owner/:ownerId", (req, res) => {
-  const rows = db.prepare(
-    `SELECT r.id, r.date, r.time, r.message, r.status, r.created_at,
-    u.email AS student_email
-    FROM requests r
-    JOIN users u ON u.id = r.student_id
-    WHERE r.owner_id = ? AND r.status = 'pending'
-    ORDER BY r.date ASC, r.time ASC`,
-    ).all(req.params.ownerId);
-
-  res.json(rows);
-});
-
-app.patch("/requests/:id", async (req, res) => {
-  const { status } = req.body;
-
-  if (status !== "accepted" && status !== "declined") 
-    return res.status(400).json({ error: "status must be accepted or declined" });
-  
-  const request = db.prepare(
-      `SELECT r.*, u_student.email AS student_email, u_owner.email AS owner_email
-    FROM requests r
-    JOIN users u_student ON u_student.id = r.student_id
-    JOIN users u_owner   ON u_owner.id   = r.owner_id
-    WHERE r.id = ? AND r.status = 'pending'`,
-    ).get(req.params.id);
-
-  if (!request)
-    return res.status(404).json({ error: "Request not found or already resolved" });
-
-  if (status === "accepted") {
-    db.transaction(() => {
-      const slot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-      .run(request.owner_id, request.date, request.time, "requested", nowIso());
-
-      db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(request.student_id, slot.lastInsertRowid, nowIso());
-      db.prepare("UPDATE requests SET status = 'accepted' WHERE id = ?").run(request.id);
-    })();
-
-    await mail.notifyRequestAccepted({
-      to: request.student_email,
-      ownerEmail: request.owner_email,
-      date: request.date,
-      time: request.time,
-    });
-  } 
-  else {
-    db.prepare("UPDATE requests SET status = 'declined' WHERE id = ?").run(request.id);
-
-    await mail.notifyRequestDeclined({
-      to: request.student_email,
-      ownerEmail: request.owner_email,
-      date: request.date,
-      time: request.time,
-    });
-  }
-
-  res.json({ message: `Request ${status}` });
-});
-
-app.delete("/requests/:id", (req, res) => {
-  const result = db.prepare("DELETE FROM requests WHERE id = ?").run(req.params.id);
-  if (result.changes === 0)
-    return res.status(404).json({error: "Request not found"});
-
-  res.json({ message: "Request deleted" });
-});
-
-app.post("/group-polls", async (req, res) => {
-  const { owner_id, title, slots } = req.body;
-  if (!owner_id || !title || !Array.isArray(slots) || slots.length === 0) {
-    return res.status(400).json({ error: "Missing fields" });
-  }
-
-  const owner = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
-  if (!owner) return res.status(404).json({ error: "Owner not found" });
-
-  const created = db.transaction(() => {
-    const poll = db
-      .prepare("INSERT INTO group_polls (owner_id, title, invite_token, created_at) VALUES (?, ?, ?, ?)")
-      .run(owner_id, title, crypto.randomBytes(16).toString("base64url"), nowIso());
-    const pollId = poll.lastInsertRowid;
-    const insertSlot = db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)");
-    let inserted = 0;
-    for (const s of slots) {
-      if (!s?.date || !s?.time || isPast(s.date, s.time)) continue;
-      insertSlot.run(pollId, s.date, s.time);
-      inserted += 1;
-    }
-    if (inserted === 0) {
-      db.prepare("DELETE FROM group_polls WHERE id = ?").run(pollId);
-      return null;
-    }
-    return pollId;
-  })();
-
-  if (created == null) {
-    return res.status(400).json({ error: "No valid time options (check date and time are in the future)" });
-  }
-  res.json({ id: created });
-});
-
-const getPollsForOwner = (ownerId) => {
-  const polls = db.prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC").all(ownerId);
-  return polls.map((poll) => {
-    const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
-    const slotsWithCounts = slots.map((slot) => {
-      const countRow = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
-      return { ...slot, vote_count: countRow.count };
-    });
-    return { ...poll, slots: slotsWithCounts };
-  });
+    openDialog(dialog);
 };
 
-app.get("/group-polls/owner/:ownerId", (req, res) => {
-  res.json(getPollsForOwner(req.params.ownerId));
-});
-
-app.get("/group-polls/invite/:token", (req, res) => {
-  const poll = db.prepare(
-    "SELECT p.*, u.email AS owner_email FROM group_polls p JOIN users u ON u.id = p.owner_id WHERE p.invite_token = ?"
-  ).get(req.params.token);
-
-  if (!poll) return res.status(404).json({ error: "Poll not found" });
-
-  const owner = db.prepare("SELECT id, email, invite_token FROM users WHERE id = ?").get(poll.owner_id);
-  const viewerId = Number(req.query.viewer) || 0;
-
-  const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
-  const slotIds = slots.map(s => s.id);
-
-  const slotsWithCounts = slots.map(slot => {
-    const row = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
-    return { ...slot, vote_count: row.count };
-  });
-
-  let myVotes = [];
-  if (viewerId && slotIds.length > 0) {
-    const viewer = db.prepare("SELECT id, email FROM users WHERE id = ?").get(viewerId);
-    if (viewer) {
-      myVotes = db.prepare(
-        `SELECT poll_slot_id FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id IN (${slotIds.map(() => "?").join(",")})`
-      ).all(viewerId, ...slotIds).map(r => r.poll_slot_id);
-    }
-  }
-
-  res.json({
-    owner,
-    polls: [{ poll, slots: slotsWithCounts, myVotes }],
-    poll,
-    slots: slotsWithCounts,
-    myVotes,
-  });
-});
-
-app.post("/group-polls/invite/:token/vote", (req, res) => {
-  const poll = db.prepare("SELECT * FROM group_polls WHERE invite_token = ?").get(req.params.token);
-  if (!poll) return res.status(404).json({ error: "Invite link not found" });
-
-  const viewer_id = Number(req.body.viewer_id);
-  if (!viewer_id) return res.status(400).json({ error: "viewer_id is required" });
-
-  const viewer = db.prepare("SELECT id, email FROM users WHERE id = ?").get(viewer_id);
-  if (!viewer) return res.status(404).json({ error: "User not found" });
-
-  const pollSlots = db.prepare("SELECT id FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
-  const pollSlotIds = new Set(pollSlots.map(s => Number(s.id)));
-  const requested = Array.isArray(req.body.slot_ids) ? req.body.slot_ids.map(Number) : [];
-  const slot_ids = requested.filter(id => pollSlotIds.has(id));
-
-  db.transaction(() => {
-    for (const s of pollSlots) {
-      db.prepare("DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id = ?").run(viewer_id, s.id);
-    }
-    for (const slotId of slot_ids) {
-      db.prepare("INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)").run(slotId, viewer_id, viewer.email);
-    }
-  })();
-
-  res.json({ message: "Votes saved" });
-});
-
-app.post("/group-polls/:id/finalize", (req, res) => {
-  const slot_id = req.body.slot_id;
-  const weeks = req.body.weeks;
-
-  if (!slot_id) return res.status(400).json({ error: "Missing slot_id" });
-
-  const poll = db.prepare("SELECT * FROM group_polls WHERE id = ?").get(req.params.id);
-  if (!poll) return res.status(400).json({ error: "Poll not found" });
-
-  const chosenSlot = db.prepare("SELECT * FROM group_poll_slots WHERE id = ? AND poll_id = ?").get(slot_id, poll.id);
-  if (!chosenSlot) return res.status(404).json({ error: "Slot not found" });
-
-  let repeatWeeks = Number(weeks) || 1;
-  if (repeatWeeks < 1) repeatWeeks = 1;
-  if (repeatWeeks > 26) repeatWeeks = 26;
-
-  const owner = db.prepare("SELECT email FROM users WHERE id = ?").get(poll.owner_id);
-  const recipients = db
-    .prepare(
-      `
-      SELECT DISTINCT u.email
-      FROM group_poll_votes v
-      JOIN group_poll_slots s ON s.id = v.poll_slot_id
-      JOIN users u ON u.id = v.voter_id
-      WHERE s.poll_id = ?
-        AND u.email IS NOT NULL
-        AND u.email <> ''
-    `,
-    )
-    .all(poll.id)
-    .map((r) => r.email);
-
-  const createFinalizedSlots = db.transaction(() => {
-    const insertSlot = db.prepare(
-      "INSERT INTO slots (owner_id, date, time, type, group_title, active, created_at) VALUES (?, ?, ?, 'group', ?, 1, ?)",
-    );
-    for (let w = 0; w < repeatWeeks; w++) {
-      const d = new Date(`${chosenSlot.date}T${chosenSlot.time}`);
-      d.setDate(d.getDate() + w * 7);
-      const date = d.toISOString().slice(0, 10);
-      const time = chosenSlot.time;
-      insertSlot.run(poll.owner_id, date, time, poll.title, nowIso());
-    }
-    db.prepare("DELETE FROM group_poll_votes WHERE poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)").run(poll.id);
-    db.prepare("DELETE FROM group_poll_slots WHERE poll_id = ?").run(poll.id);
-    db.prepare("DELETE FROM group_poll_invites WHERE poll_id = ?").run(poll.id);
-    db.prepare("DELETE FROM group_polls WHERE id = ?").run(poll.id);
-  });
-
-  createFinalizedSlots();
-
-  if (owner?.email && recipients.length) {
-    Promise.allSettled(
-      recipients.map((to) =>
-        mail.notifyPollFinalized({
-          to,
-          ownerEmail: owner.email,
-          title: poll.title,
-          date: chosenSlot.date,
-          time: chosenSlot.time,
-          weeks: repeatWeeks,
-        }),
-      ),
-    ).catch((err) => {
-      console.error("[group-poll] finalize notifications failed:", err);
-    });
-  }
-
-  res.json({ message: "Poll finalized" });
-});
-
-app.delete("/group-polls/:id", (req, res) => {
-  const poll = db.prepare("SELECT id FROM group_polls WHERE id = ?").get(req.params.id);
-  if (!poll) return res.status(404).json({ error: "Poll not found" });
-
-  db.prepare("DELETE FROM group_poll_votes WHERE poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)").run(req.params.id);
-  db.prepare("DELETE FROM group_poll_slots WHERE poll_id = ?").run(req.params.id);
-  db.prepare("DELETE FROM group_poll_invites WHERE poll_id = ?").run(req.params.id);
-  db.prepare("DELETE FROM group_polls WHERE id = ?").run(req.params.id);
-
-  res.json({ message: "Poll deleted" });
-});
-
-app.get("/api/export-calendar", (req, res) => {
-  const userId = Number(req.query.user_id);
-  if (!userId) return res.status(400).json({ error: "UserID not sent" });
-
-  const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
-  if (!user) return res.status(404).json({ error: "User not found" });
-
-  const rows = db.prepare(
-    `SELECT b.id AS booking_id, s.date, s.time, s.type, s.group_title,
-           CASE WHEN s.owner_id = ? THEN 'owner' ELSE 'student' END AS role,
-           CASE WHEN s.owner_id = ? THEN student.email ELSE owner.email END AS counterparty_email
-    FROM bookings b
-    JOIN slots s ON s.id = b.slot_id
-    JOIN users owner ON owner.id = s.owner_id
-    JOIN users student ON student.id = b.student_id
-    WHERE (s.owner_id = ? OR b.student_id = ?)
-      AND s.active = 1
-      AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-    ORDER BY s.date ASC, s.time ASC`)
-    .all(userId, userId, userId, userId);
-
-    const events = rows.map((row) => ({booking_id: row.booking_id, date: row.date, time: row.time,
-       summary: row.group_title || `Booking with ${row.counterparty_email}`,description: `Type: ${row.type}`,}));
-    
-    const icsFile = buildIcs(events);
-
-    res.setHeader("Content-Type", "text/calendar; charset = utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename = "booking-slots.ics"');
-    res.send(icsFile);
-});
-
-
-app.post("/password-reset/request", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: "Email required" });
-
-  const user = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
-  if (!user) return res.status(404).json({ error: "No account found with that email" });
-
-  db.prepare("DELETE FROM password_resets WHERE user_id = ?").run(user.id);
-
-  const token = crypto.randomBytes(16).toString("base64url");
-  db.prepare("INSERT INTO password_resets (user_id, token, created_at) VALUES (?, ?, ?)").run(user.id, token, nowIso());
-
-  await mail.notifyPasswordReset({ to: user.email, token });
-
-  res.json({ message: "Reset email sent" });
-});
-
-app.post("/password-reset/confirm", (req, res) => {
-  const { token, password } = req.body;
-  if (!token || !password) return res.status(400).json({ error: "Missing fields" });
-
-  const reset = db.prepare(
-    "SELECT r.*, u.email FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token = ?"
-  ).get(token);
-
-  if (!reset) return res.status(404).json({ error: "Invalid or expired reset link" });
-
-  const created = new Date(reset.created_at);
-  const now = new Date();
-  const diffHours = (now - created) / (1000 * 60 * 60);
-  if (diffHours > 24) {
-    db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
-    return res.status(400).json({ error: "Reset link has expired" });
-  }
-
-  db.prepare("UPDATE users SET password = ? WHERE id = ?").run(password, reset.user_id);
-  db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
-
-  res.json({ message: "Password updated" });
-});
-
-const CLEANUP_INTERVAL_MS = 60_000;
-const runCleanup = () => {
-  try { cleanupExpired(); }
-  catch (err) { console.error("[cleanup] failed:", err?.message || err); }
+export const resolveToken = async (ownerId) => {
+    if (tokenCache.has(ownerId)) return tokenCache.get(ownerId);
+    const { token } = await apiFetch(`/owners/${ownerId}/invite-token`, { method: 'POST' });
+    tokenCache.set(ownerId, token);
+    return token;
 };
-runCleanup();
-setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
-const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || "localhost";
+const renderOnePollCard = (entry, viewer, isOwnerViewing) => {
+    const poll = entry?.poll;
+    const slots = Array.isArray(entry?.slots) ? entry.slots : [];
+    const myVotes = Array.isArray(entry?.myVotes) ? entry.myVotes : [];
+    if (!poll) return '';
 
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
-});
+    const isStudent = viewer?.role === 'student';
+    const selected = new Set(myVotes.map(Number));
+
+    const optionsHtml = slots.length
+        ? slots
+              .map((slot) => {
+                  const selectedCls = selected.has(slot.id) ? ' is-selected' : '';
+                  const voteCount = Number(slot.vote_count) || 0;
+                  const voteLabel = voteCount === 1 ? '1 vote' : `${voteCount} votes`;
+                  return `<button type="button" class="poll-vote-option${selectedCls}" data-action="toggle-poll-vote" data-slot-id="${slot.id}" aria-pressed="${selected.has(slot.id) ? 'true' : 'false'}" title="Tap to add or remove your vote" ${isStudent ? '' : 'disabled'}>
+                <span class="poll-vote-pick" aria-hidden="true">
+                    <svg class="poll-vote-check" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#check" /></svg>
+                </span>
+                <span class="poll-vote-when">
+                    <span class="booking-slot-date">${formatShortDate(slot.date)}</span>
+                    <span class="booking-slot-time">${formatClockTime(slot.time)}</span>
+                </span>
+                <span class="poll-vote-meta">${voteLabel}</span>
+            </button>`;
+              })
+              .join('')
+        : '<p class="booking-poll-empty">No time options yet.</p>';
+
+    const subtitle = isOwnerViewing
+        ? 'Students tap a time to vote on your link.'
+        : 'Tap a time to add or remove your vote';
+
+    const cardVariant = isOwnerViewing ? ' booking-poll-card--owner' : '';
+    return `
+        <section class="booking-poll-card${cardVariant}" data-poll-id="${poll.id}">
+            <header class="booking-poll-head">
+                <h3>Group meeting: ${escapeHtml(poll.title)}</h3>
+                <p>${subtitle}</p>
+            </header>
+            <div class="poll-vote-options">${optionsHtml}</div>
+        </section>
+    `;
+};
+
+const renderPollSections = (pollData, viewer, isOwnerViewing) => {
+    const entries =
+        Array.isArray(pollData?.polls) && pollData.polls.length > 0
+            ? pollData.polls
+            : pollData?.poll
+              ? [{ poll: pollData.poll, slots: pollData.slots || [], myVotes: pollData.myVotes || [] }]
+              : [];
+    const inner = entries.map((e) => renderOnePollCard(e, viewer, isOwnerViewing)).join('');
+    return inner ? `<div class="booking-poll-list">${inner}</div>` : '';
+};
+
+const renderContent = (data, viewer, pollData) => {
+    const { owner, slots } = data;
+    const isOwnerViewing = viewer?.id === owner.id;
+    const isOwnerRole = viewer?.role === 'owner';
+    const viewOnly = isOwnerRole && !isOwnerViewing;
+    const isStudent = viewer?.role === 'student';
+
+    const headerHtml = `
+        <div class="booking-header">
+            <div class="booking-heading">
+                <span class="prof-avatar">${initialsFromEmail(owner.email)}</span>
+                <div class="booking-heading-meta">
+                    <span class="booking-heading-label">${isOwnerViewing ? 'Your slots' : 'Book with'}</span>
+                    <a class="booking-heading-email" href="mailto:${encodeURIComponent(owner.email)}" title="Email ${escapeHtml(owner.email)}">
+                        <span>${escapeHtml(owner.email)}</span>
+                        <svg width="13" height="13" viewBox="0 0 24 24"><use href="assets/icons.svg#mail" /></svg>
+                    </a>
+                </div>
+            </div>
+            <button type="button" class="ghost-button press" data-action="share-booking-link" data-owner-id="${owner.id}">
+                <svg width="14" height="14" viewBox="0 0 24 24"><use href="assets/icons.svg#link" /></svg>
+                <span>Share link</span>
+            </button>
+        </div>
+    `;
+
+    const requestBtn = isStudent
+        ? `<div class="booking-request-wrap"><button type="button" class="booking-request-btn press" data-action="request-meeting" data-owner-id="${owner.id}"><svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#calendar-days" /></svg><span>Request a meeting</span></button></div>`
+        : '';
+
+    const pollSection = renderPollSections(pollData, viewer, isOwnerViewing);
+    if (!slots.length) {
+        return headerHtml + `<div class="booking-empty">No active slots available right now.</div>${pollSection}${requestBtn}`;
+    }
+
+    const slotsHtml = slots.map((slot) => {
+        const booked = Boolean(slot.booking_id);
+        const selfBooked = booked && slot.booker_id === viewer?.id;
+        const rawTitle = String(slot.group_title || '').trim();
+        const isGroupDefault = slot.type === 'group' && (!rawTitle || rawTitle.toLowerCase() === 'group meeting');
+        const badgeLabel = !rawTitle && slot.type !== 'group'
+            ? ''
+            : isGroupDefault
+                ? 'Group'
+                : slot.type === 'group'
+                    ? `Group - ${escapeHtml(rawTitle)}`
+                    : escapeHtml(rawTitle);
+        const disabled = booked || isOwnerViewing || viewOnly || !viewer || !isStudent;
+        const label = selfBooked
+            ? 'Booked by you'
+            : booked
+                ? 'Booked'
+                : isOwnerViewing
+                    ? 'Your slot'
+                    : viewOnly
+                        ? 'View only'
+                        : 'Book';
+        const btn = selfBooked
+            ? `<button type="button" class="primary-button-ghost press" data-action="cancel-booking" data-booking-id="${slot.booking_id}">Cancel</button>`
+            : `<button type="button" class="primary-button press" data-action="book-slot" data-slot-id="${slot.id}"${disabled ? ' disabled' : ''}>${label}</button>`;
+        return `
+            <li class="booking-slot${booked ? ' is-booked' : ''}" data-slot-id="${slot.id}">
+                <div class="booking-slot-when">
+                    <span class="booking-slot-date">${formatShortDate(slot.date)}</span>
+                    <span class="booking-slot-time">${formatClockTime(slot.time)}</span>
+                    ${badgeLabel ? `<span class="booking-slot-badge">${badgeLabel}</span>` : ''}
+                </div>
+                ${btn}
+            </li>
+        `;
+    }).join('');
+
+    return `${headerHtml}<ul class="booking-slots">${slotsHtml}</ul>${pollSection}${requestBtn}`;
+};
+
+const ensureBookingDialog = () => {
+    const existing = document.querySelector('.booking-dialog');
+    if (existing) return existing;
+    const dialog = createDialog({
+        className: 'booking-dialog',
+        content: '<div class="booking-dialog-body"></div>',
+    });
+    dialog.addEventListener('close', dismissViewOnlyToast);
+    return dialog;
+};
+
+const getContainer = (mode) => {
+    if (mode === 'page') return document.querySelector('#view-invite .invite-inner');
+    return ensureBookingDialog().querySelector('.booking-dialog-body');
+};
+
+const setError = (container, message) => {
+    if (!container) return;
+    let err = container.querySelector('.dialog-error');
+    if (!message) {
+        if (err) err.remove();
+        return;
+    }
+    if (!err) {
+        err = document.createElement('p');
+        err.className = 'dialog-error';
+        container.appendChild(err);
+    }
+    err.textContent = message;
+};
+
+const boundHosts = new WeakSet();
+const hostContext = new WeakMap();
+const activeViewStates = new Map();
+
+const bindInteractions = (host, mode, state) => {
+    hostContext.set(host, { mode, state });
+    if (boundHosts.has(host)) return;
+    boundHosts.add(host);
+
+    host.addEventListener('click', async (e) => {
+        const context = hostContext.get(host);
+        if (!context) return;
+        const { mode: activeMode, state: activeState } = context;
+        const viewer = getUser();
+        const bookBtn = e.target.closest('[data-action="book-slot"]');
+        if (bookBtn) {
+            const slotId = Number(bookBtn.dataset.slotId);
+            if (!viewer) {
+                setError(activeState.container, 'Sign in to book.');
+                return;
+            }
+            if (viewer.role !== 'student') {
+                setError(activeState.container, 'Only students can book slots.');
+                return;
+            }
+            bookBtn.disabled = true;
+            try {
+                await apiFetch('/bookings', {
+                    method: 'POST',
+                    body: { student_id: viewer.id, slot_id: slotId },
+                });
+                setError(activeState.container, '');
+                await refreshBookingView(activeMode, activeState);
+                window.dispatchEvent(new CustomEvent('booking-changed'));
+            } catch (err) {
+                bookBtn.disabled = false;
+                if (err instanceof ApiError && err.status === 409) {
+                    setError(activeState.container, 'That slot was just booked by someone else.');
+                    await refreshBookingView(activeMode, activeState);
+                } else {
+                    setError(activeState.container, err.message || 'Could not book.');
+                }
+            }
+            return;
+        }
+
+        const cancelBtn = e.target.closest('[data-action="cancel-booking"]');
+        if (cancelBtn) {
+            const bookingId = Number(cancelBtn.dataset.bookingId);
+            if (!confirm('Cancel this booking?')) return;
+            cancelBtn.disabled = true;
+            try {
+                await apiFetch(`/bookings/${bookingId}`, {
+                    method: 'DELETE',
+                    body: { cancelled_by_role: 'student' },
+                });
+                await refreshBookingView(activeMode, activeState);
+                window.dispatchEvent(new CustomEvent('booking-changed'));
+            } catch (err) {
+                cancelBtn.disabled = false;
+                setError(activeState.container, err.message || 'Could not cancel.');
+            }
+            return;
+        }
+
+        const requestMeetingBtn = e.target.closest('[data-action="request-meeting"]');
+        if (requestMeetingBtn) {
+            const ownerId = Number(requestMeetingBtn.dataset.ownerId);
+            openRequestDialog(ownerId);
+            return;
+        }
+
+        const pollOption = e.target.closest('[data-action="toggle-poll-vote"]');
+        if (pollOption) {
+            if (viewer?.role !== 'student') return;
+            const pollCard = pollOption.closest('.booking-poll-card');
+            if (!pollCard || pollCard.classList.contains('poll-vote-saving')) return;
+            pollOption.classList.toggle('is-selected');
+            pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
+            const rawPollId = Number(pollCard.dataset.pollId);
+            const slotIds = [...pollCard.querySelectorAll('.poll-vote-option.is-selected')].map((b) => Number(b.dataset.slotId));
+            const voteBody = { viewer_id: viewer.id, slot_ids: slotIds };
+            if (Number.isFinite(rawPollId) && rawPollId > 0) voteBody.poll_id = rawPollId;
+            pollCard.classList.add('poll-vote-saving');
+            try {
+                await apiFetch(`/group-polls/invite/${encodeURIComponent(activeState.token)}/vote`, {
+                    method: 'POST',
+                    body: voteBody,
+                });
+                setError(activeState.container, '');
+                await refreshBookingView(activeMode, activeState);
+            } catch (err) {
+                pollOption.classList.toggle('is-selected');
+                pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
+                setError(activeState.container, err.message || 'Could not update your vote.');
+            } finally {
+                pollCard.classList.remove('poll-vote-saving');
+            }
+            return;
+        }
+
+        const shareBtn = e.target.closest('[data-action="share-booking-link"]');
+        if (shareBtn) {
+            const ownerId = Number(shareBtn.dataset.ownerId);
+            try {
+                const token = await resolveToken(ownerId);
+                await navigator.clipboard.writeText(`${location.origin}${location.pathname}#/invite/${token}`);
+                showToast({ content: '<span>Invite link copied</span>', timeout: 2000 });
+            } catch (err) {
+                showToast({ content: `<span>${err.message || 'Failed to create link'}</span>`, timeout: 2000, variant: 'error' });
+            }
+        }
+
+    });
+};
+
+const emptyPollPayload = { poll: null, polls: [], slots: [], myVotes: [] };
+
+const refreshBookingView = async (mode, state) => {
+    try {
+        const viewer = getUser();
+        const qs = viewer ? `?viewer=${viewer.id}` : '';
+        const data = await apiFetch(`/invite/${encodeURIComponent(state.token)}${qs}`);
+
+        let pollData = emptyPollPayload;
+        try {
+            pollData = await apiFetch(
+                `/group-polls/invite/${encodeURIComponent(state.token)}${qs}`,
+            );
+        } catch (pollErr) {
+            if (pollErr instanceof ApiError && (pollErr.status === 404 || pollErr.status === 400)) {
+                pollData = emptyPollPayload;
+            } else {
+                console.warn('[invite] group poll load failed', pollErr);
+                pollData = emptyPollPayload;
+            }
+        }
+
+        state.container.innerHTML = renderContent(data, viewer, pollData);
+    } catch (err) {
+        state.container.innerHTML = '';
+        if (mode === 'page') {
+            const holder = document.querySelector('#view-invite .invite-inner');
+            if (holder) holder.innerHTML = `<div class="invite-error">${escapeHtml(err.message || 'Invite link not found.')}</div>`;
+        } else {
+            state.container.innerHTML = `<div class="booking-empty">${escapeHtml(err.message || 'Invite link not found.')}</div>`;
+        }
+    }
+};
+
+let activeViewOnlyToast = null;
+let hashListenerBound = false;
+const bindHashDismiss = () => {
+    if (hashListenerBound) return;
+    hashListenerBound = true;
+    window.addEventListener('hashchange', () => {
+        if (!/^#\/invite\//.test(location.hash)) dismissViewOnlyToast();
+    });
+};
+
+const maybeShowViewOnlyToast = () => {
+    const viewer = getUser();
+    if (!viewer || viewer.role !== 'owner') return;
+    if (activeViewOnlyToast) return;
+    activeViewOnlyToast = showToast({
+        content: `
+            <span class="toast-title">You're signed in as a professor</span>
+            <span class="toast-caption">Only students can book slots.</span>
+        `,
+        dismissable: true,
+        timeout: 0,
+    });
+};
+
+const dismissViewOnlyToast = () => {
+    activeViewOnlyToast?.dismiss();
+    activeViewOnlyToast = null;
+};
+
+export const openBookingDialog = async ({ ownerId, token, mode = 'modal' } = {}) => {
+    const resolved = token || (ownerId ? await resolveToken(ownerId) : null);
+    if (!resolved) return;
+
+    const container = getContainer(mode);
+    if (!container) return;
+
+    const host = mode === 'page' ? container.parentElement : container;
+    const state = { token: resolved, container };
+    activeViewStates.set(mode, state);
+    bindInteractions(host, mode, state);
+    await refreshBookingView(mode, state);
+
+    if (mode === 'modal') {
+        const dialog = container.closest('dialog.booking-dialog');
+        if (dialog) openDialog(dialog);
+    }
+
+    bindHashDismiss();
+    maybeShowViewOnlyToast();
+};
+
+export const rehydrateBookingViews = async () => {
+    const jobs = [];
+    activeViewStates.forEach((state, mode) => {
+        if (!state?.container || !document.body.contains(state.container)) {
+            activeViewStates.delete(mode);
+            return;
+        }
+        jobs.push(refreshBookingView(mode, state));
+    });
+    await Promise.all(jobs);
+};
