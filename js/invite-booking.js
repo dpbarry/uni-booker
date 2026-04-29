@@ -1,4 +1,4 @@
-// Zheng Ye, Dean Barry, Mariana Diaz Betancourt
+// Zheng Ye, Dean Barry
 
 import { apiFetch, getUser, ApiError } from './global.js';
 import { createDialog, openDialog, requestDialogClose } from './dialog.js';
@@ -413,7 +413,6 @@ const bindInteractions = (host, mode, state) => {
                     body: voteBody,
                 });
                 setError(activeState.container, '');
-                await refreshBookingView(activeMode, activeState);
             } catch (err) {
                 pollOption.classList.toggle('is-selected');
                 pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
