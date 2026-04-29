@@ -1,4 +1,4 @@
-// Zheng Ye, Dean Barry
+// Zheng Ye, Dean Barry, Mariana Diaz Betancourt
 
 const express = require("express");
 const path = require("path");
@@ -87,25 +87,25 @@ const buildIcs = (events) => {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
   const vevents = events.map((event) => {
-        const start = toIcsDate(event.date, event.time);
+    const start = toIcsDate(event.date, event.time);
 
-        const endDate = new Date(`${event.date}T${event.time.slice(0, 5)}`);
-        endDate.setMinutes(endDate.getMinutes() + 60);
-        const end = endDate.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const endDate = new Date(`${event.date}T${event.time.slice(0, 5)}`);
+    endDate.setMinutes(endDate.getMinutes() + 60);
+    const end = endDate.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 
-        const summary = escapeIcs(event.summary);
-        const uid = `booking-${event.booking_id}@uni-booker`; 
-        const description = escapeIcs(event.description);
+    const summary = escapeIcs(event.summary);
+    const uid = `booking-${event.booking_id}@uni-booker`;
+    const description = escapeIcs(event.description);
 
-        const fields = ["BEGIN:VEVENT", `UID:${uid}`, `DTSTAMP:${stamp}`,`DTSTART:${start}`, `DTEND:${end}`,
-                        `SUMMARY:${summary}`,description ? `DESCRIPTION:${description}` : null, "END:VEVENT",
-                      ];
-        const result = fields.filter(Boolean).join("\r\n");
+    const fields = ["BEGIN:VEVENT", `UID:${uid}`, `DTSTAMP:${stamp}`, `DTSTART:${start}`, `DTEND:${end}`,
+      `SUMMARY:${summary}`, description ? `DESCRIPTION:${description}` : null, "END:VEVENT",
+    ];
+    const result = fields.filter(Boolean).join("\r\n");
 
-        return result;
+    return result;
   });
 
-   return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//UniBooker//EN", ...vevents, "END:VCALENDAR"].join("\r\n");
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//UniBooker//EN", ...vevents, "END:VCALENDAR"].join("\r\n");
 }
 
 
@@ -230,7 +230,7 @@ app.post("/slots/recurring", (req, res) => {
 
   if (!owner_id || !Array.isArray(days) || !days.length || !time || !start_date || !weeks)
     return res.status(400).json({ error: "Missing fields" });
-  
+
   if (weeks < 1 || weeks > 52)
     return res.status(400).json({ error: "Invalid Number of Weeks selected" });
 
@@ -240,7 +240,7 @@ app.post("/slots/recurring", (req, res) => {
   const pad = (n) => String(n).padStart(2, "0");
   const toYmd = (d) =>
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  
+
   const [sy, sm, sd] = start_date.split("-").map(Number);
   const anchorDate = new Date(sy, sm - 1, sd);
 
@@ -249,7 +249,7 @@ app.post("/slots/recurring", (req, res) => {
   const insertMany = db.transaction(() => {
     const slots = [];
 
-    const anchorDay = anchorDate.getDay();    
+    const anchorDay = anchorDate.getDay();
     for (let week = 0; week < weeks; week++) {
       for (let day of days) {
         const daysOffset = week * 7 + (day - anchorDay);
@@ -547,25 +547,25 @@ app.get("/upcoming/:userId", (req, res) => {
 app.post("/requests", async (req, res) => {
   const { student_id, owner_id, date, time, message } = req.body;
   if (!student_id || !owner_id || !date || !time)
-    return res.status(400).json({error: "Missing fields"});
+    return res.status(400).json({ error: "Missing fields" });
 
   if (isPast(date, time))
-    return res.status(400).json({error: "Cannot request a time in the past"});
+    return res.status(400).json({ error: "Cannot request a time in the past" });
 
   const student = db.prepare("SELECT id, email FROM users WHERE id = ?").get(student_id);
   if (!student)
-    return res.status(404).json({error: "Student not found"});
+    return res.status(404).json({ error: "Student not found" });
 
   const owner = db.prepare("SELECT id, email FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
   if (!owner)
-    return res.status(404).json({error: "Professor not found"});
+    return res.status(404).json({ error: "Professor not found" });
 
   const result = db.prepare("INSERT INTO requests (student_id, owner_id, date, time, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(student_id, owner_id, date, time, message ?? null, "pending", nowIso());
 
   await mail.notifyMeetingRequested({ to: owner.email, studentEmail: student.email, date, time });
 
-  res.json({id: result.lastInsertRowid});
+  res.json({ id: result.lastInsertRowid });
 });
 
 app.get("/requests/owner/:ownerId", (req, res) => {
@@ -576,7 +576,7 @@ app.get("/requests/owner/:ownerId", (req, res) => {
     JOIN users u ON u.id = r.student_id
     WHERE r.owner_id = ? AND r.status = 'pending'
     ORDER BY r.date ASC, r.time ASC`,
-    ).all(req.params.ownerId);
+  ).all(req.params.ownerId);
 
   res.json(rows);
 });
@@ -584,16 +584,16 @@ app.get("/requests/owner/:ownerId", (req, res) => {
 app.patch("/requests/:id", async (req, res) => {
   const { status } = req.body;
 
-  if (status !== "accepted" && status !== "declined") 
+  if (status !== "accepted" && status !== "declined")
     return res.status(400).json({ error: "status must be accepted or declined" });
-  
+
   const request = db.prepare(
-      `SELECT r.*, u_student.email AS student_email, u_owner.email AS owner_email
+    `SELECT r.*, u_student.email AS student_email, u_owner.email AS owner_email
     FROM requests r
     JOIN users u_student ON u_student.id = r.student_id
     JOIN users u_owner   ON u_owner.id   = r.owner_id
     WHERE r.id = ? AND r.status = 'pending'`,
-    ).get(req.params.id);
+  ).get(req.params.id);
 
   if (!request)
     return res.status(404).json({ error: "Request not found or already resolved" });
@@ -601,7 +601,7 @@ app.patch("/requests/:id", async (req, res) => {
   if (status === "accepted") {
     db.transaction(() => {
       const slot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-      .run(request.owner_id, request.date, request.time, "requested", nowIso());
+        .run(request.owner_id, request.date, request.time, "requested", nowIso());
 
       db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(request.student_id, slot.lastInsertRowid, nowIso());
       db.prepare("UPDATE requests SET status = 'accepted' WHERE id = ?").run(request.id);
@@ -613,7 +613,7 @@ app.patch("/requests/:id", async (req, res) => {
       date: request.date,
       time: request.time,
     });
-  } 
+  }
   else {
     db.prepare("UPDATE requests SET status = 'declined' WHERE id = ?").run(request.id);
 
@@ -631,7 +631,7 @@ app.patch("/requests/:id", async (req, res) => {
 app.delete("/requests/:id", (req, res) => {
   const result = db.prepare("DELETE FROM requests WHERE id = ?").run(req.params.id);
   if (result.changes === 0)
-    return res.status(404).json({error: "Request not found"});
+    return res.status(404).json({ error: "Request not found" });
 
   res.json({ message: "Request deleted" });
 });
@@ -648,8 +648,8 @@ app.post("/group-polls", async (req, res) => {
 
   const created = db.transaction(() => {
     const poll = db
-      .prepare("INSERT INTO group_polls (owner_id, title, created_at) VALUES (?, ?, ?)")
-      .run(owner_id, pollTitle, nowIso());
+      .prepare("INSERT INTO group_polls (owner_id, title, invite_token, created_at) VALUES (?, ?, ?, ?)")
+      .run(owner_id, title, crypto.randomBytes(16).toString('base64url'), nowIso());
     const pollId = poll.lastInsertRowid;
     const insertSlot = db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)");
     let inserted = 0;
@@ -688,90 +688,57 @@ app.get("/group-polls/owner/:ownerId", (req, res) => {
 });
 
 app.get("/group-polls/invite/:token", (req, res) => {
-  const owner = db.prepare("SELECT id, email FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
-  if (!owner) return res.status(404).json({ error: "Invite link not found" });
+  const poll = db.prepare(
+    "SELECT p.*, u.email AS owner_email FROM group_polls p JOIN users u ON u.id = p.owner_id WHERE p.invite_token = ?"
+  ).get(req.params.token);
 
-  const pollsOpen = db
-    .prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC")
-    .all(owner.id);
+  if (!poll) return res.status(404).json({ error: "Invite link not found" });
 
+  const owner = db.prepare("SELECT id, email, invite_token FROM users WHERE id = ?").get(poll.owner_id);
   const viewerId = Number(req.query.viewer) || 0;
-  if (!pollsOpen.length) {
-    return res.json({ owner, polls: [], poll: null, slots: [], myVotes: [] });
+
+  const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
+  const slotIds = slots.map(s => s.id);
+
+  const slotsWithCounts = slots.map(slot => {
+    const row = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
+    return { ...slot, vote_count: row.count };
+  });
+
+  let myVotes = [];
+  if (viewerId && slotIds.length > 0) {
+    myVotes = db.prepare(
+      `SELECT poll_slot_id FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id IN (${slotIds.map(() => "?").join(",")})`
+    ).all(viewerId, ...slotIds).map(r => r.poll_slot_id);
   }
 
-  const buildInvitePoll = (poll) => {
-    const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
-    const slotIds = slots.map((s) => s.id);
-    const voteCounts = new Map();
-    for (const slot of slots) {
-      const row = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
-      voteCounts.set(slot.id, row.count);
-    }
-    let myVotes = [];
-    if (viewerId && slotIds.length) {
-      myVotes = db
-        .prepare(
-          `SELECT poll_slot_id
-           FROM group_poll_votes
-           WHERE voter_id = ?
-             AND poll_slot_id IN (${slotIds.map(() => "?").join(",")})`,
-        )
-        .all(viewerId, ...slotIds)
-        .map((r) => r.poll_slot_id);
-    }
-    return {
-      poll,
-      slots: slots.map((slot) => ({ ...slot, vote_count: voteCounts.get(slot.id) || 0 })),
-      myVotes,
-    };
-  };
-
-  const polls = pollsOpen.map(buildInvitePoll);
-  const first = polls[0];
   res.json({
     owner,
-    polls,
-    poll: first.poll,
-    slots: first.slots,
-    myVotes: first.myVotes,
+    polls: [{ poll, slots: slotsWithCounts, myVotes }],
+    poll,
+    slots: slotsWithCounts,
+    myVotes,
   });
 });
 
 app.post("/group-polls/invite/:token/vote", (req, res) => {
-  const owner = db.prepare("SELECT id FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
-  if (!owner) return res.status(404).json({ error: "Invite link not found" });
+  const poll = db.prepare("SELECT * FROM group_polls WHERE invite_token = ?").get(req.params.token);
+  if (!poll) return res.status(404).json({ error: "Invite link not found" });
 
   const viewer_id = Number(req.body.viewer_id);
   if (!viewer_id) return res.status(400).json({ error: "viewer_id is required" });
-  const viewer = db.prepare("SELECT id, email FROM users WHERE id = ?").get(viewer_id);
-  if (!viewer || !viewer.email) return res.status(404).json({ error: "Viewer not found" });
-
-  const requestedPollId = Number(req.body.poll_id);
-  const poll = Number.isFinite(requestedPollId) && requestedPollId > 0
-    ? db
-        .prepare("SELECT * FROM group_polls WHERE id = ? AND owner_id = ?")
-        .get(requestedPollId, owner.id)
-    : db
-        .prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC LIMIT 1")
-        .get(owner.id);
-  if (!poll) return res.status(400).json({ error: "No active poll for this owner" });
 
   const pollSlots = db.prepare("SELECT id FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
-  const pollSlotIds = new Set(pollSlots.map((s) => Number(s.id)));
+  const pollSlotIds = new Set(pollSlots.map(s => Number(s.id)));
   const requested = Array.isArray(req.body.slot_ids) ? req.body.slot_ids.map(Number) : [];
-  const slot_ids = requested.filter((id) => pollSlotIds.has(id));
+  const slot_ids = requested.filter(id => pollSlotIds.has(id));
 
   db.transaction(() => {
-    db.prepare(
-      "DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)",
-    ).run(viewer_id, poll.id);
-
-    const insertVote = db.prepare(
-      "INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)",
-    );
+    for (const s of pollSlots) {
+      db.prepare("DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id = ?").run(viewer_id, s.id);
+    }
     for (const slotId of slot_ids) {
-      insertVote.run(slotId, viewer.id, String(viewer.email).toLowerCase());
+      db.prepare("INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)").run(slotId, viewer_id, "");
     }
   })();
 
@@ -882,16 +849,58 @@ app.get("/api/export-calendar", (req, res) => {
     ORDER BY s.date ASC, s.time ASC`)
     .all(userId, userId, userId, userId);
 
-    const events = rows.map((row) => ({booking_id: row.booking_id, date: row.date, time: row.time,
-       summary: row.group_title || `Booking with ${row.counterparty_email}`,description: `Type: ${row.type}`,}));
-    
-    const icsFile = buildIcs(events);
+  const events = rows.map((row) => ({
+    booking_id: row.booking_id, date: row.date, time: row.time,
+    summary: row.group_title || `Booking with ${row.counterparty_email}`, description: `Type: ${row.type}`,
+  }));
 
-    res.setHeader("Content-Type", "text/calendar; charset = utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename = "booking-slots.ics"');
-    res.send(icsFile);
+  const icsFile = buildIcs(events);
+
+  res.setHeader("Content-Type", "text/calendar; charset = utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename = "booking-slots.ics"');
+  res.send(icsFile);
 });
 
+app.post("/password-reset/request", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email required" });
+
+  const user = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
+  if (!user) return res.status(404).json({ error: "No account found with that email" });
+
+  db.prepare("DELETE FROM password_resets WHERE user_id = ?").run(user.id);
+
+  const token = crypto.randomBytes(16).toString("base64url");
+  db.prepare("INSERT INTO password_resets (user_id, token, created_at) VALUES (?, ?, ?)").run(user.id, token, nowIso());
+
+  await mail.notifyPasswordReset({ to: user.email, token });
+
+  res.json({ message: "Reset email sent" });
+});
+
+app.post("/password-reset/confirm", (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: "Missing fields" });
+
+  const reset = db.prepare(
+    "SELECT r.*, u.email FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token = ?"
+  ).get(token);
+
+  if (!reset) return res.status(404).json({ error: "Invalid or expired reset link" });
+
+  const created = new Date(reset.created_at);
+  const now = new Date();
+  const diffHours = (now - created) / (1000 * 60 * 60);
+  if (diffHours > 24) {
+    db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
+    return res.status(400).json({ error: "Reset link has expired" });
+  }
+
+  db.prepare("UPDATE users SET password = ? WHERE id = ?").run(password, reset.user_id);
+  db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
+
+  res.json({ message: "Password updated" });
+});
 
 const CLEANUP_INTERVAL_MS = 60_000;
 const runCleanup = () => {

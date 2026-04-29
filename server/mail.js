@@ -1,4 +1,4 @@
-// Dean Barry
+// Dean Barry, Mariana Diaz Betancourt
 
 const { Resend } = require("resend");
 
@@ -105,3 +105,9 @@ exports.notifyPollFinalized = ({ to, ownerEmail, title, date, time, weeks }) => 
   });
 };
 
+exports.notifyPasswordReset = ({ to, token }) =>
+  send({
+    to,
+    subject: 'Reset your UniBooker password',
+    text: `You requested a password reset.\n\nClick the link below to set a new password:\n${process.env.APP_URL || 'http://localhost:3000'}/#/reset/${token}\n\nThis link expires in 24 hours. If you didn't request this, you can ignore this email.`,
+  });
