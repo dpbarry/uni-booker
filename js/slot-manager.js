@@ -299,16 +299,29 @@ export const handleSlotManagerSubmit = async (e) => {
     const submitBtn = form.querySelector('button[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
     try {
-        await apiFetch('/slots/create', {
-            method: 'POST',
-            body: {
-                owner_id: user.id,
-                date,
-                time: `${time}:00`,
-                repeat_weeks: repeatWeeks,
-                group_title: slotName || null,
-            },
-        });
+        if (repeatWeeks > 1) {
+            const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
+            await apiFetch('/slots/recurring', {
+                method: 'POST',
+                body: {
+                    owner_id: user.id,
+                    days: [dayOfWeek],
+                    time: `${time}:00`,
+                    start_date: date,
+                    weeks: repeatWeeks,
+                },
+            });
+        } else {
+            await apiFetch('/slots/create', {
+                method: 'POST',
+                body: {
+                    owner_id: user.id,
+                    date,
+                    time: `${time}:00`,
+                    group_title: slotName || null,
+                },
+            });
+        }
         if (dlg) requestDialogClose(dlg);
         await refreshOwnerSlots();
     } catch (err) {
