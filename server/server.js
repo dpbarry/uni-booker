@@ -826,8 +826,8 @@ app.get("/api/export-calendar", (req, res) => {
   const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
   if (!user) return res.status(404).json({ error: "User not found" });
 
-  const rows = db.prepare(`
-    SELECT b.id AS booking_id, s.date, s.time, s.type, s.group_title,
+  const rows = db.prepare(
+    `SELECT b.id AS booking_id, s.date, s.time, s.type, s.group_title,
            CASE WHEN s.owner_id = ? THEN 'owner' ELSE 'student' END AS role,
            CASE WHEN s.owner_id = ? THEN student.email ELSE owner.email END AS counterparty_email
     FROM bookings b
@@ -837,11 +837,11 @@ app.get("/api/export-calendar", (req, res) => {
     WHERE (s.owner_id = ? OR b.student_id = ?)
       AND s.active = 1
       AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-    ORDER BY s.date ASC, s.time ASC
-    `).all(userId, userId, userId, userId);
+    ORDER BY s.date ASC, s.time ASC`)
+    .all(userId, userId, userId, userId);
 
     const events = rows.map((row) => ({booking_id: row.booking_id, date: row.date, time: row.time,
-       summary: row.group_title || `Office hours with ${row.counterparty_email}`,description: `Type: ${row.type}`,}));
+       summary: row.group_title || `Booking with ${row.counterparty_email}`,description: `Type: ${row.type}`,}));
     
     const icsFile = buildIcs(events);
 

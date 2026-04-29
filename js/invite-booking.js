@@ -38,6 +38,7 @@ const openRequestDialog = (ownerId) => {
                         <span class="dialog-label">Date</span>
                         <span class="dialog-field-warning" id="request-date-warning" aria-live="polite"></span>
                     </div>
+
                     <input type="hidden" name="date" value="${defaultDate}" required>
                     <div class="request-picker-calendar"></div>
                 </div>
@@ -100,9 +101,9 @@ const openRequestDialog = (ownerId) => {
             syncSubmit();
         },
     });
-
     calendar.setSelected(defaultDate);
     calendar.goto(defaultDate);
+
     const timePicker = createTimePicker(timePickerHost, {
         value: defaultTime,
         onChange: (next) => {
@@ -118,6 +119,7 @@ const openRequestDialog = (ownerId) => {
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
         const viewer = getUser();
         if (viewer?.role !== 'student') return;
 
@@ -134,7 +136,7 @@ const openRequestDialog = (ownerId) => {
                 body: { student_id: viewer.id, owner_id: ownerId, date, time: `${time}:00`, message },
             });
             requestDialogClose(dialog);
-            
+
             showToast({ content: '<span>Meeting request sent</span>', timeout: 2000 });
         }
         catch (err) {
