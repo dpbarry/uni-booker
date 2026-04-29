@@ -1,4 +1,4 @@
-//Zheng Ye, Dean Barry
+//Zheng Ye, Dean Barry, Mariana Diaz Betancourt
 
 const Database = require("better-sqlite3");
 const crypto = require("crypto");
@@ -59,6 +59,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL,
     title TEXT NOT NULL,
+    invite_token TEXT UNIQUE,
     created_at TEXT,
     FOREIGN KEY (owner_id) REFERENCES users(id)
   );
@@ -88,6 +89,14 @@ db.exec(`
     FOREIGN KEY (poll_id) REFERENCES group_polls(id)
   );
 
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
   CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_slot_student_unique ON bookings(slot_id, student_id);
 `);
 
@@ -102,6 +111,7 @@ if (!hasColumn("slots", "created_at")) db.exec("ALTER TABLE slots ADD COLUMN cre
 if (!hasColumn("slots", "group_title")) db.exec("ALTER TABLE slots ADD COLUMN group_title TEXT");
 if (!hasColumn("bookings", "created_at")) db.exec("ALTER TABLE bookings ADD COLUMN created_at TEXT");
 if (!hasColumn("group_poll_votes", "voter_id")) db.exec("ALTER TABLE group_poll_votes ADD COLUMN voter_id INTEGER");
+if (!hasColumn("group_polls", "invite_token")) db.exec("ALTER TABLE group_polls ADD COLUMN invite_token TEXT");
 
 const hasIndex = (name) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name);
