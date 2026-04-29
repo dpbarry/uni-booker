@@ -413,7 +413,6 @@ const bindInteractions = (host, mode, state) => {
                     body: voteBody,
                 });
                 setError(activeState.container, '');
-                await refreshBookingView(activeMode, activeState);
             } catch (err) {
                 pollOption.classList.toggle('is-selected');
                 pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');

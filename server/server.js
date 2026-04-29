@@ -192,18 +192,24 @@ app.get("/invite/:token", (req, res) => {
   const slots = db
     .prepare(
       `
-    SELECT s.id, s.date, s.time, s.active,
-           b.id AS booking_id, b.student_id AS booker_id
+    SELECT s.id, s.date, s.time, s.active, s.type, s.group_title,
+           my.id AS booking_id, my.student_id AS booker_id
     FROM slots s
-    LEFT JOIN bookings b ON b.slot_id = s.id
+    LEFT JOIN bookings my
+      ON my.slot_id = s.id
+     AND my.student_id = ?
     WHERE s.owner_id = ?
       AND s.active = 1
       AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-      AND (b.id IS NULL OR b.student_id = ?)
+      AND (
+        s.type = 'group'
+        OR my.id IS NOT NULL
+        OR NOT EXISTS (SELECT 1 FROM bookings b WHERE b.slot_id = s.id)
+      )
     ORDER BY s.date ASC, s.time ASC
   `,
     )
-    .all(owner.id, viewerId);
+    .all(viewerId, owner.id);
   res.json({ owner, slots });
 });
 
@@ -289,12 +295,28 @@ app.get("/slots/owner/:ownerId", (req, res) => {
     db
       .prepare(
         `
-      SELECT s.id, s.date, s.time, s.active, s.type,
-             CASE WHEN s.active = 1 THEN b.id ELSE NULL END AS booking_id,
-             CASE WHEN s.active = 1 THEN u.email ELSE NULL END AS booker_email
+      SELECT s.id, s.date, s.time, s.active, s.type, s.group_title,
+             CASE WHEN s.active = 1 THEN (
+               SELECT b.id
+               FROM bookings b
+               WHERE b.slot_id = s.id
+               ORDER BY b.id DESC
+               LIMIT 1
+             ) ELSE NULL END AS booking_id,
+             CASE WHEN s.active = 1 THEN (
+               SELECT u.email
+               FROM bookings b
+               JOIN users u ON u.id = b.student_id
+               WHERE b.slot_id = s.id
+               ORDER BY b.id DESC
+               LIMIT 1
+             ) ELSE NULL END AS booker_email,
+             CASE WHEN s.active = 1 THEN (
+               SELECT COUNT(*)
+               FROM bookings bc
+               WHERE bc.slot_id = s.id
+             ) ELSE 0 END AS booking_count
       FROM slots s
-      LEFT JOIN bookings b ON b.slot_id = s.id
-      LEFT JOIN users u ON u.id = b.student_id
       WHERE s.owner_id = ?
         AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
       ORDER BY s.date ASC, s.time ASC
@@ -302,6 +324,23 @@ app.get("/slots/owner/:ownerId", (req, res) => {
       )
       .all(req.params.ownerId),
   );
+});
+
+app.get("/slots/:id/attendees", (req, res) => {
+  const slot = db.prepare("SELECT id FROM slots WHERE id = ?").get(req.params.id);
+  if (!slot) return res.status(404).json({ error: "Slot not found" });
+  const attendees = db
+    .prepare(
+      `
+      SELECT DISTINCT u.email
+      FROM bookings b
+      JOIN users u ON u.id = b.student_id
+      WHERE b.slot_id = ?
+      ORDER BY u.email ASC
+    `,
+    )
+    .all(req.params.id);
+  res.json({ attendees });
 });
 
 app.put("/slots/:id/toggle", async (req, res) => {
