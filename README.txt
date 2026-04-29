@@ -10,3 +10,4 @@ Table of Contributions:
 
 
 Code not Coded by Ourselves:
+Zheng Ye: .notif-dot css selector in main.css (8 lines)

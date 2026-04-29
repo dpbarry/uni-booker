@@ -16,6 +16,7 @@
 .topbar-tools { display: flex; align-items: center; gap: 0.2rem; }
 
 .notif-bell { position: relative; }
+
 .notif-dot {
   position: absolute;
   top: 4px;
