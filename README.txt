@@ -4,8 +4,8 @@ Table of Contributions:
 
 |           NAME            |           ID          |                            Contributions                                |
 -------------------------------------------------------------------------------------------------------------------------------
-        Zheng Ye Zhang               261165863            Type 1 booking, Type 3 booking, Export Calendar bonus feature
-        Dean Barry                   261133304            Frontend, CSS, emails, authentication, server and DB rewrites, encryption
+        Zheng Ye Zhang               261165863             Type 1 booking, Type 3 booking, Export Calendar bonus feature
+        Dean Barry                   261133304       Frontend, CSS, emails, authentication, server and DB rewrites, encryption
 
 
 

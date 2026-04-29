@@ -1,4 +1,4 @@
-// Dean Barry
+// Dean Barry, Zheng Ye
 
 import { apiFetch, getUser } from './global.js';
 import { createDialog, openDialog, requestDialogClose, setDialogFooterError } from './dialog.js';
@@ -77,11 +77,11 @@ const updateSlotPreview = (dialogEl) => {
 
 const ensureSlotDialogPicker = (dialogEl) => {
     if (!dialogEl) return;
-    
-    const calendarHost = dialogEl.querySelector('.slot-picker-calendar');
+
     const dateInput = dialogEl.querySelector('input[name="date"]');
     const timeInput = dialogEl.querySelector('input[name="time"]');
     const timePickerHost = dialogEl.querySelector('.slot-time-picker');
+    const calendarHost = dialogEl.querySelector('.slot-picker-calendar');
     if (!calendarHost || !dateInput || !timeInput || !timePickerHost) return;
 
     if (!slotPickerCalendar) {
