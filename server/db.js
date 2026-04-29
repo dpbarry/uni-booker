@@ -1,7 +1,13 @@
 //Zheng Ye
 
 const Database = require("better-sqlite3");
+const crypto = require("crypto");
 const db = new Database("./uni_booker.db");
+const hashPassword = (password) => {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const key = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString("hex");
+  return `scrypt$16384$8$1$${salt}$${key}`;
+};
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -106,8 +112,8 @@ if (!hasIndex("idx_bookings_slot_student_unique")) {
 
 const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get().count;
 if (userCount === 0) {
-  db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("prof@mcgill.ca", "123", "owner");
-  db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("student@mail.mcgill.ca", "123", "student");
+  db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("prof@mcgill.ca", hashPassword("123"), "owner");
+  db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run("student@mail.mcgill.ca", hashPassword("123"), "student");
   console.log("Seed users created: prof@mcgill.ca, student@mail.mcgill.ca (password: 123)");
 }
 

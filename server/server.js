@@ -11,8 +11,41 @@ app.use(express.static(path.join(__dirname, "..")));
 app.use(express.json());
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_HASH_PREFIX = "scrypt";
+const SCRYPT_N = 16384;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SALT_BYTES = 16;
+const KEY_BYTES = 64;
 
 const nowIso = () => new Date().toISOString();
+const hashPassword = (password) => {
+  const salt = crypto.randomBytes(SALT_BYTES).toString("hex");
+  const key = crypto.scryptSync(password, salt, KEY_BYTES, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+  }).toString("hex");
+  return `${PASSWORD_HASH_PREFIX}$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${key}`;
+};
+const verifyHashedPassword = (password, storedHash) => {
+  if (typeof storedHash !== "string") return false;
+  const parts = storedHash.split("$");
+  if (parts.length !== 6 || parts[0] !== PASSWORD_HASH_PREFIX) return false;
+  const [, nRaw, rRaw, pRaw, salt, keyHex] = parts;
+  const n = Number(nRaw);
+  const r = Number(rRaw);
+  const p = Number(pRaw);
+  if (!n || !r || !p || !salt || !keyHex) return false;
+  const derived = crypto.scryptSync(password, salt, Buffer.from(keyHex, "hex").length, {
+    N: n,
+    r,
+    p,
+  });
+  const expected = Buffer.from(keyHex, "hex");
+  return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+};
+const isPasswordHash = (value) => typeof value === "string" && value.startsWith(`${PASSWORD_HASH_PREFIX}$`);
 const isPast = (date, time) => {
   const when = new Date(`${date}T${time}`);
   return Number.isNaN(when.getTime()) || when.getTime() < Date.now();
@@ -81,9 +114,19 @@ app.post("/login", (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: "Email and password required" });
 
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+  const lEmail = String(email).toLowerCase();
+  const user = db.prepare("SELECT * FROM users WHERE lower(email) = ?").get(lEmail);
   if (!user) return res.status(404).json({ error: "User not found" });
-  if (user.password !== password) return res.status(401).json({ error: "Incorrect password" });
+  let isValid = false;
+  if (isPasswordHash(user.password)) {
+    isValid = verifyHashedPassword(password, user.password);
+  } else {
+    isValid = user.password === password;
+    if (isValid) {
+      db.prepare("UPDATE users SET password = ? WHERE id = ?").run(hashPassword(password), user.id);
+    }
+  }
+  if (!isValid) return res.status(401).json({ error: "Incorrect password" });
 
   const { password: _p, invite_token: _t, ...safe } = user;
   res.json(safe);
@@ -94,18 +137,19 @@ app.post("/register", (req, res) => {
   if (!email || !password) return res.status(400).json({ error: "All fields required" });
   if (!EMAIL_RE.test(email)) return res.status(400).json({ error: "Invalid email format" });
 
-  const lEmail = email.toLowerCase();
+  const lEmail = String(email).toLowerCase();
   if (!lEmail.endsWith("@mcgill.ca") && !lEmail.endsWith("@mail.mcgill.ca")) {
     return res.status(400).json({ error: "Use McGill email" });
   }
 
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+  const existing = db.prepare("SELECT id FROM users WHERE lower(email) = ?").get(lEmail);
   if (existing) return res.status(409).json({ error: "Email already registered" });
 
   const role = lEmail.endsWith("@mcgill.ca") && !lEmail.endsWith("@mail.mcgill.ca") ? "owner" : "student";
+  const passwordHash = hashPassword(password);
 
-  const result = db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run(email, password, role);
-  res.json({ id: result.lastInsertRowid, email, role });
+  const result = db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run(lEmail, passwordHash, role);
+  res.json({ id: result.lastInsertRowid, email: lEmail, role });
 });
 
 app.get("/owners", (_req, res) => {
@@ -551,6 +595,228 @@ app.delete("/requests/:id", (req, res) => {
     return res.status(404).json({error: "Request not found"});
 
   res.json({ message: "Request deleted" });
+});
+
+app.post("/group-polls", async (req, res) => {
+  const { owner_id, title, slots } = req.body;
+  if (!owner_id || !title || !Array.isArray(slots) || slots.length === 0) {
+    return res.status(400).json({ error: "Missing fields" });
+  }
+
+  const owner = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
+  if (!owner) return res.status(404).json({ error: "Owner not found" });
+
+  const created = db.transaction(() => {
+    const poll = db
+      .prepare("INSERT INTO group_polls (owner_id, title, created_at) VALUES (?, ?, ?)")
+      .run(owner_id, title, nowIso());
+    const pollId = poll.lastInsertRowid;
+    const insertSlot = db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)");
+    let inserted = 0;
+    for (const s of slots) {
+      if (!s?.date || !s?.time || isPast(s.date, s.time)) continue;
+      insertSlot.run(pollId, s.date, s.time);
+      inserted += 1;
+    }
+    if (inserted === 0) {
+      db.prepare("DELETE FROM group_polls WHERE id = ?").run(pollId);
+      return null;
+    }
+    return pollId;
+  })();
+
+  if (created == null) {
+    return res.status(400).json({ error: "No valid time options (check date and time are in the future)" });
+  }
+  res.json({ id: created });
+});
+
+const getPollsForOwner = (ownerId) => {
+  const polls = db.prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC").all(ownerId);
+  return polls.map((poll) => {
+    const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
+    const slotsWithCounts = slots.map((slot) => {
+      const countRow = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
+      return { ...slot, vote_count: countRow.count };
+    });
+    return { ...poll, slots: slotsWithCounts };
+  });
+};
+
+app.get("/group-polls/owner/:ownerId", (req, res) => {
+  res.json(getPollsForOwner(req.params.ownerId));
+});
+
+app.get("/group-polls/invite/:token", (req, res) => {
+  const owner = db.prepare("SELECT id, email FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
+  if (!owner) return res.status(404).json({ error: "Invite link not found" });
+
+  const pollsOpen = db
+    .prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC")
+    .all(owner.id);
+
+  const viewerId = Number(req.query.viewer) || 0;
+  if (!pollsOpen.length) {
+    return res.json({ owner, polls: [], poll: null, slots: [], myVotes: [] });
+  }
+
+  const buildInvitePoll = (poll) => {
+    const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
+    const slotIds = slots.map((s) => s.id);
+    const voteCounts = new Map();
+    for (const slot of slots) {
+      const row = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
+      voteCounts.set(slot.id, row.count);
+    }
+    let myVotes = [];
+    if (viewerId && slotIds.length) {
+      myVotes = db
+        .prepare(
+          `SELECT poll_slot_id
+           FROM group_poll_votes
+           WHERE voter_id = ?
+             AND poll_slot_id IN (${slotIds.map(() => "?").join(",")})`,
+        )
+        .all(viewerId, ...slotIds)
+        .map((r) => r.poll_slot_id);
+    }
+    return {
+      poll,
+      slots: slots.map((slot) => ({ ...slot, vote_count: voteCounts.get(slot.id) || 0 })),
+      myVotes,
+    };
+  };
+
+  const polls = pollsOpen.map(buildInvitePoll);
+  const first = polls[0];
+  res.json({
+    owner,
+    polls,
+    poll: first.poll,
+    slots: first.slots,
+    myVotes: first.myVotes,
+  });
+});
+
+app.post("/group-polls/invite/:token/vote", (req, res) => {
+  const owner = db.prepare("SELECT id FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
+  if (!owner) return res.status(404).json({ error: "Invite link not found" });
+
+  const viewer_id = Number(req.body.viewer_id);
+  if (!viewer_id) return res.status(400).json({ error: "viewer_id is required" });
+
+  const requestedPollId = Number(req.body.poll_id);
+  const poll = Number.isFinite(requestedPollId) && requestedPollId > 0
+    ? db
+        .prepare("SELECT * FROM group_polls WHERE id = ? AND owner_id = ?")
+        .get(requestedPollId, owner.id)
+    : db
+        .prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC LIMIT 1")
+        .get(owner.id);
+  if (!poll) return res.status(400).json({ error: "No active poll for this owner" });
+
+  const pollSlots = db.prepare("SELECT id FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
+  const pollSlotIds = new Set(pollSlots.map((s) => Number(s.id)));
+  const requested = Array.isArray(req.body.slot_ids) ? req.body.slot_ids.map(Number) : [];
+  const slot_ids = requested.filter((id) => pollSlotIds.has(id));
+
+  db.transaction(() => {
+    db.prepare(
+      "DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)",
+    ).run(viewer_id, poll.id);
+
+    const insertVote = db.prepare(
+      "INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)",
+    );
+    for (const slotId of slot_ids) {
+      insertVote.run(slotId, viewer_id, "");
+    }
+  })();
+
+  res.json({ message: "Votes saved" });
+});
+
+app.post("/group-polls/:id/finalize", (req, res) => {
+  const slot_id = req.body.slot_id;
+  const weeks = req.body.weeks;
+
+  if (!slot_id) return res.status(400).json({ error: "Missing slot_id" });
+
+  const poll = db.prepare("SELECT * FROM group_polls WHERE id = ?").get(req.params.id);
+  if (!poll) return res.status(400).json({ error: "Poll not found" });
+
+  const chosenSlot = db.prepare("SELECT * FROM group_poll_slots WHERE id = ? AND poll_id = ?").get(slot_id, poll.id);
+  if (!chosenSlot) return res.status(404).json({ error: "Slot not found" });
+
+  let repeatWeeks = Number(weeks) || 1;
+  if (repeatWeeks < 1) repeatWeeks = 1;
+  if (repeatWeeks > 26) repeatWeeks = 26;
+
+  const owner = db.prepare("SELECT email FROM users WHERE id = ?").get(poll.owner_id);
+  const recipients = db
+    .prepare(
+      `
+      SELECT DISTINCT u.email
+      FROM group_poll_votes v
+      JOIN group_poll_slots s ON s.id = v.poll_slot_id
+      JOIN users u ON u.id = v.voter_id
+      WHERE s.poll_id = ?
+        AND u.email IS NOT NULL
+        AND u.email <> ''
+    `,
+    )
+    .all(poll.id)
+    .map((r) => r.email);
+
+  const createFinalizedSlots = db.transaction(() => {
+    const insertSlot = db.prepare(
+      "INSERT INTO slots (owner_id, date, time, type, group_title, active, created_at) VALUES (?, ?, ?, 'group', ?, 1, ?)",
+    );
+    for (let w = 0; w < repeatWeeks; w++) {
+      const d = new Date(`${chosenSlot.date}T${chosenSlot.time}`);
+      d.setDate(d.getDate() + w * 7);
+      const date = d.toISOString().slice(0, 10);
+      const time = chosenSlot.time;
+      insertSlot.run(poll.owner_id, date, time, poll.title, nowIso());
+    }
+    db.prepare("DELETE FROM group_poll_votes WHERE poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)").run(poll.id);
+    db.prepare("DELETE FROM group_poll_slots WHERE poll_id = ?").run(poll.id);
+    db.prepare("DELETE FROM group_poll_invites WHERE poll_id = ?").run(poll.id);
+    db.prepare("DELETE FROM group_polls WHERE id = ?").run(poll.id);
+  });
+
+  createFinalizedSlots();
+
+  if (owner?.email && recipients.length) {
+    Promise.allSettled(
+      recipients.map((to) =>
+        mail.notifyPollFinalized({
+          to,
+          ownerEmail: owner.email,
+          title: poll.title,
+          date: chosenSlot.date,
+          time: chosenSlot.time,
+          weeks: repeatWeeks,
+        }),
+      ),
+    ).catch((err) => {
+      console.error("[group-poll] finalize notifications failed:", err);
+    });
+  }
+
+  res.json({ message: "Poll finalized" });
+});
+
+app.delete("/group-polls/:id", (req, res) => {
+  const poll = db.prepare("SELECT id FROM group_polls WHERE id = ?").get(req.params.id);
+  if (!poll) return res.status(404).json({ error: "Poll not found" });
+
+  db.prepare("DELETE FROM group_poll_votes WHERE poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)").run(req.params.id);
+  db.prepare("DELETE FROM group_poll_slots WHERE poll_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM group_poll_invites WHERE poll_id = ?").run(req.params.id);
+  db.prepare("DELETE FROM group_polls WHERE id = ?").run(req.params.id);
+
+  res.json({ message: "Poll deleted" });
 });
 
 app.get("/api/export-calendar", (req, res) => {

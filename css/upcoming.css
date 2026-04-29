@@ -69,6 +69,39 @@
 
 .upcoming-calendar:empty { display: none; }
 
+#export-cal-btn {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.12em;
+  text-decoration-color: color-mix(in srgb, var(--color-muted) 55%, transparent);
+  cursor: pointer;
+  transition: color 160ms ease, text-decoration-color 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #export-cal-btn:hover {
+    color: var(--color-base);
+    text-decoration-color: color-mix(in srgb, var(--color-base) 75%, transparent);
+  }
+}
+
+#export-cal-btn:focus-visible {
+  outline: none;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px var(--color-elevated), 0 0 0 4px var(--focus-shadow);
+}
+
 .upcoming-list {
   list-style: none;
   margin: 0;
