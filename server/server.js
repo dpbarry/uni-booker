@@ -1,4 +1,4 @@
-// Zheng Ye, Dean Barry
+// Zheng Ye, Dean Barry, Mariana Diaz Betancourt
 
 const express = require("express");
 const path = require("path");
@@ -192,24 +192,18 @@ app.get("/invite/:token", (req, res) => {
   const slots = db
     .prepare(
       `
-    SELECT s.id, s.date, s.time, s.active, s.type, s.group_title,
-           my.id AS booking_id, my.student_id AS booker_id
+    SELECT s.id, s.date, s.time, s.active,
+           b.id AS booking_id, b.student_id AS booker_id
     FROM slots s
-    LEFT JOIN bookings my
-      ON my.slot_id = s.id
-     AND my.student_id = ?
+    LEFT JOIN bookings b ON b.slot_id = s.id
     WHERE s.owner_id = ?
       AND s.active = 1
       AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
-      AND (
-        s.type = 'group'
-        OR my.id IS NOT NULL
-        OR NOT EXISTS (SELECT 1 FROM bookings b WHERE b.slot_id = s.id)
-      )
+      AND (b.id IS NULL OR b.student_id = ?)
     ORDER BY s.date ASC, s.time ASC
   `,
     )
-    .all(viewerId, owner.id);
+    .all(owner.id, viewerId);
   res.json({ owner, slots });
 });
 
@@ -295,28 +289,12 @@ app.get("/slots/owner/:ownerId", (req, res) => {
     db
       .prepare(
         `
-      SELECT s.id, s.date, s.time, s.active, s.type, s.group_title,
-             CASE WHEN s.active = 1 THEN (
-               SELECT b.id
-               FROM bookings b
-               WHERE b.slot_id = s.id
-               ORDER BY b.id DESC
-               LIMIT 1
-             ) ELSE NULL END AS booking_id,
-             CASE WHEN s.active = 1 THEN (
-               SELECT u.email
-               FROM bookings b
-               JOIN users u ON u.id = b.student_id
-               WHERE b.slot_id = s.id
-               ORDER BY b.id DESC
-               LIMIT 1
-             ) ELSE NULL END AS booker_email,
-             CASE WHEN s.active = 1 THEN (
-               SELECT COUNT(*)
-               FROM bookings bc
-               WHERE bc.slot_id = s.id
-             ) ELSE 0 END AS booking_count
+      SELECT s.id, s.date, s.time, s.active, s.type,
+             CASE WHEN s.active = 1 THEN b.id ELSE NULL END AS booking_id,
+             CASE WHEN s.active = 1 THEN u.email ELSE NULL END AS booker_email
       FROM slots s
+      LEFT JOIN bookings b ON b.slot_id = s.id
+      LEFT JOIN users u ON u.id = b.student_id
       WHERE s.owner_id = ?
         AND datetime(s.date || ' ' || substr(s.time, 1, 5)) >= datetime('now', 'localtime')
       ORDER BY s.date ASC, s.time ASC
@@ -324,23 +302,6 @@ app.get("/slots/owner/:ownerId", (req, res) => {
       )
       .all(req.params.ownerId),
   );
-});
-
-app.get("/slots/:id/attendees", (req, res) => {
-  const slot = db.prepare("SELECT id FROM slots WHERE id = ?").get(req.params.id);
-  if (!slot) return res.status(404).json({ error: "Slot not found" });
-  const attendees = db
-    .prepare(
-      `
-      SELECT DISTINCT u.email
-      FROM bookings b
-      JOIN users u ON u.id = b.student_id
-      WHERE b.slot_id = ?
-      ORDER BY u.email ASC
-    `,
-    )
-    .all(req.params.id);
-  res.json({ attendees });
 });
 
 app.put("/slots/:id/toggle", async (req, res) => {
@@ -647,8 +608,8 @@ app.post("/group-polls", async (req, res) => {
 
   const created = db.transaction(() => {
     const poll = db
-      .prepare("INSERT INTO group_polls (owner_id, title, created_at) VALUES (?, ?, ?)")
-      .run(owner_id, title, nowIso());
+      .prepare("INSERT INTO group_polls (owner_id, title, invite_token, created_at) VALUES (?, ?, ?, ?)")
+      .run(owner_id, title, crypto.randomBytes(16).toString("base64url"), nowIso());
     const pollId = poll.lastInsertRowid;
     const insertSlot = db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)");
     let inserted = 0;
@@ -687,88 +648,63 @@ app.get("/group-polls/owner/:ownerId", (req, res) => {
 });
 
 app.get("/group-polls/invite/:token", (req, res) => {
-  const owner = db.prepare("SELECT id, email FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
-  if (!owner) return res.status(404).json({ error: "Invite link not found" });
+  const poll = db.prepare(
+    "SELECT p.*, u.email AS owner_email FROM group_polls p JOIN users u ON u.id = p.owner_id WHERE p.invite_token = ?"
+  ).get(req.params.token);
 
-  const pollsOpen = db
-    .prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC")
-    .all(owner.id);
+  if (!poll) return res.status(404).json({ error: "Poll not found" });
 
+  const owner = db.prepare("SELECT id, email, invite_token FROM users WHERE id = ?").get(poll.owner_id);
   const viewerId = Number(req.query.viewer) || 0;
-  if (!pollsOpen.length) {
-    return res.json({ owner, polls: [], poll: null, slots: [], myVotes: [] });
+
+  const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
+  const slotIds = slots.map(s => s.id);
+
+  const slotsWithCounts = slots.map(slot => {
+    const row = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
+    return { ...slot, vote_count: row.count };
+  });
+
+  let myVotes = [];
+  if (viewerId && slotIds.length > 0) {
+    const viewer = db.prepare("SELECT id, email FROM users WHERE id = ?").get(viewerId);
+    if (viewer) {
+      myVotes = db.prepare(
+        `SELECT poll_slot_id FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id IN (${slotIds.map(() => "?").join(",")})`
+      ).all(viewerId, ...slotIds).map(r => r.poll_slot_id);
+    }
   }
 
-  const buildInvitePoll = (poll) => {
-    const slots = db.prepare("SELECT * FROM group_poll_slots WHERE poll_id = ? ORDER BY date ASC, time ASC").all(poll.id);
-    const slotIds = slots.map((s) => s.id);
-    const voteCounts = new Map();
-    for (const slot of slots) {
-      const row = db.prepare("SELECT COUNT(*) as count FROM group_poll_votes WHERE poll_slot_id = ?").get(slot.id);
-      voteCounts.set(slot.id, row.count);
-    }
-    let myVotes = [];
-    if (viewerId && slotIds.length) {
-      myVotes = db
-        .prepare(
-          `SELECT poll_slot_id
-           FROM group_poll_votes
-           WHERE voter_id = ?
-             AND poll_slot_id IN (${slotIds.map(() => "?").join(",")})`,
-        )
-        .all(viewerId, ...slotIds)
-        .map((r) => r.poll_slot_id);
-    }
-    return {
-      poll,
-      slots: slots.map((slot) => ({ ...slot, vote_count: voteCounts.get(slot.id) || 0 })),
-      myVotes,
-    };
-  };
-
-  const polls = pollsOpen.map(buildInvitePoll);
-  const first = polls[0];
   res.json({
     owner,
-    polls,
-    poll: first.poll,
-    slots: first.slots,
-    myVotes: first.myVotes,
+    polls: [{ poll, slots: slotsWithCounts, myVotes }],
+    poll,
+    slots: slotsWithCounts,
+    myVotes,
   });
 });
 
 app.post("/group-polls/invite/:token/vote", (req, res) => {
-  const owner = db.prepare("SELECT id FROM users WHERE invite_token = ? AND role = 'owner'").get(req.params.token);
-  if (!owner) return res.status(404).json({ error: "Invite link not found" });
+  const poll = db.prepare("SELECT * FROM group_polls WHERE invite_token = ?").get(req.params.token);
+  if (!poll) return res.status(404).json({ error: "Invite link not found" });
 
   const viewer_id = Number(req.body.viewer_id);
   if (!viewer_id) return res.status(400).json({ error: "viewer_id is required" });
 
-  const requestedPollId = Number(req.body.poll_id);
-  const poll = Number.isFinite(requestedPollId) && requestedPollId > 0
-    ? db
-        .prepare("SELECT * FROM group_polls WHERE id = ? AND owner_id = ?")
-        .get(requestedPollId, owner.id)
-    : db
-        .prepare("SELECT * FROM group_polls WHERE owner_id = ? ORDER BY created_at DESC LIMIT 1")
-        .get(owner.id);
-  if (!poll) return res.status(400).json({ error: "No active poll for this owner" });
+  const viewer = db.prepare("SELECT id, email FROM users WHERE id = ?").get(viewer_id);
+  if (!viewer) return res.status(404).json({ error: "User not found" });
 
   const pollSlots = db.prepare("SELECT id FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
-  const pollSlotIds = new Set(pollSlots.map((s) => Number(s.id)));
+  const pollSlotIds = new Set(pollSlots.map(s => Number(s.id)));
   const requested = Array.isArray(req.body.slot_ids) ? req.body.slot_ids.map(Number) : [];
-  const slot_ids = requested.filter((id) => pollSlotIds.has(id));
+  const slot_ids = requested.filter(id => pollSlotIds.has(id));
 
   db.transaction(() => {
-    db.prepare(
-      "DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)",
-    ).run(viewer_id, poll.id);
-
-    const insertVote = db.prepare(
-      "INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)",
-    );
+    for (const s of pollSlots) {
+      db.prepare("DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id = ?").run(viewer_id, s.id);
+    }
     for (const slotId of slot_ids) {
-      insertVote.run(slotId, viewer_id, "");
+      db.prepare("INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)").run(slotId, viewer_id, viewer.email);
     }
   })();
 
@@ -889,6 +825,47 @@ app.get("/api/export-calendar", (req, res) => {
     res.send(icsFile);
 });
 
+
+app.post("/password-reset/request", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email required" });
+
+  const user = db.prepare("SELECT id, email FROM users WHERE email = ?").get(email);
+  if (!user) return res.status(404).json({ error: "No account found with that email" });
+
+  db.prepare("DELETE FROM password_resets WHERE user_id = ?").run(user.id);
+
+  const token = crypto.randomBytes(16).toString("base64url");
+  db.prepare("INSERT INTO password_resets (user_id, token, created_at) VALUES (?, ?, ?)").run(user.id, token, nowIso());
+
+  await mail.notifyPasswordReset({ to: user.email, token });
+
+  res.json({ message: "Reset email sent" });
+});
+
+app.post("/password-reset/confirm", (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: "Missing fields" });
+
+  const reset = db.prepare(
+    "SELECT r.*, u.email FROM password_resets r JOIN users u ON u.id = r.user_id WHERE r.token = ?"
+  ).get(token);
+
+  if (!reset) return res.status(404).json({ error: "Invalid or expired reset link" });
+
+  const created = new Date(reset.created_at);
+  const now = new Date();
+  const diffHours = (now - created) / (1000 * 60 * 60);
+  if (diffHours > 24) {
+    db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
+    return res.status(400).json({ error: "Reset link has expired" });
+  }
+
+  db.prepare("UPDATE users SET password = ? WHERE id = ?").run(password, reset.user_id);
+  db.prepare("DELETE FROM password_resets WHERE token = ?").run(token);
+
+  res.json({ message: "Password updated" });
+});
 
 const CLEANUP_INTERVAL_MS = 60_000;
 const runCleanup = () => {
