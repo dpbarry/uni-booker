@@ -1,5 +1,5 @@
-// Dean Barry
-
+// Dean Barry, Mariana Diaz Betancourt
+ 
 import {
     APP_TITLE,
     authKey,
@@ -16,9 +16,10 @@ import { ensureAuthPage } from './auth.js';
 import { ensureMainPage, getAppView } from './main.js';
 import { openBookingDialog } from './invite-booking.js';
 import { openPollPage } from './group-poll.js';
-
+import { openResetPage } from './reset-password.js';
+ 
 const pageContainer = document.getElementById('page-container');
-
+ 
 const applyDemoAccounts = () => {
     if (getAllUsers().length > 0) return;
     const demo = [
@@ -29,14 +30,14 @@ const applyDemoAccounts = () => {
     sessionStorage.setItem(userKey, JSON.stringify(demo[0]));
     sessionStorage.setItem(authKey, '1');
 };
-
+ 
 const state = {
   busy: false,
   animateNextEntry: false,
 };
-
+ 
 const isAuthed = () => sessionStorage.getItem(authKey) === '1';
-
+ 
 const onSignIn = () => {
   state.animateNextEntry = true;
   const pendingPoll = sessionStorage.getItem(pendingPollKey);
@@ -53,23 +54,24 @@ const onSignIn = () => {
   }
   location.replace('#/');
 };
-
+ 
 const showTopPage = (which) => {
   document.getElementById('view-app')?.toggleAttribute('hidden', which !== 'app');
   document.getElementById('view-invite')?.toggleAttribute('hidden', which !== 'invite');
   document.getElementById('view-poll')?.toggleAttribute('hidden', which !== 'poll');
+  document.getElementById('view-reset')?.toggleAttribute('hidden', which !== 'reset');
 };
-
+ 
 async function enterMainPage() {
   state.busy = true;
   const animate = state.animateNextEntry;
   state.animateNextEntry = false;
-
+ 
   try {
     await ensureMainPage(pageContainer, { append: animate });
     const appView = getAppView();
     showTopPage('app');
-
+ 
     if (animate) {
       appView.classList.add('from-signin-layer');
       document.body.classList.add('main-entry-animation');
@@ -77,7 +79,7 @@ async function enterMainPage() {
       document.body.classList.remove('main-entry-animation');
       appView.classList.remove('from-signin-layer');
     }
-
+ 
     document.documentElement.classList.remove('first-paint-main');
     appView.classList.add('is-visible');
     document.getElementById('view-auth')?.remove();
@@ -85,7 +87,7 @@ async function enterMainPage() {
     state.busy = false;
   }
 }
-
+ 
 async function enterInvitePage(token) {
   state.busy = true;
   state.animateNextEntry = false;
@@ -101,7 +103,7 @@ async function enterInvitePage(token) {
     state.busy = false;
   }
 }
-
+ 
 async function enterPollPage(token) {
   state.busy = true;
   state.animateNextEntry = false;
@@ -118,16 +120,36 @@ async function enterPollPage(token) {
   }
 }
 
+ 
+async function enterResetPage(token) {
+  state.busy = true;
+  state.animateNextEntry = false;
+  try {
+    await ensureMainPage(pageContainer);
+    showTopPage('reset');
+    const resetView = document.getElementById('view-reset');
+    if (resetView) resetView.classList.add('is-visible');
+    document.documentElement.classList.remove('first-paint-main');
+    document.getElementById('view-auth')?.remove();
+    await openResetPage(token);
+  } finally {
+    state.busy = false;
+  }
+}
+ 
 const route = async () => {
   document.title = APP_TITLE;
   if (state.busy) return;
-
+ 
   const inviteMatch = /^#\/invite\/(.+)$/.exec(location.hash);
   const inviteToken = inviteMatch ? decodeURIComponent(inviteMatch[1]) : null;
-
+ 
   const pollMatch = /^#\/poll\/(.+)$/.exec(location.hash);
   const pollToken = pollMatch ? decodeURIComponent(pollMatch[1]) : null;
-
+ 
+  const resetMatch = /^#\/reset\/(.+)$/.exec(location.hash);
+  const resetToken = resetMatch ? decodeURIComponent(resetMatch[1]) : null;
+ 
   if (!isAuthed()) {
     if (inviteToken) {
       sessionStorage.setItem(pendingInviteKey, inviteToken);
@@ -139,6 +161,10 @@ const route = async () => {
       location.replace('#/signin');
       return;
     }
+    if (resetToken) {
+      await enterResetPage(resetToken);
+      return;
+    }
     if (location.hash !== '#/signin') {
       location.replace('#/signin');
       return;
@@ -147,9 +173,9 @@ const route = async () => {
     try {
       let animateReturn = sessionStorage.getItem(signOutAnimateKey) === '1';
       if (animateReturn) sessionStorage.removeItem(signOutAnimateKey);
-
+ 
       await ensureAuthPage(pageContainer, onSignIn, { append: animateReturn });
-
+ 
       if (animateReturn) {
         const authView = document.getElementById('view-auth');
         const appView = document.getElementById('view-app');
@@ -170,22 +196,27 @@ const route = async () => {
     }
     return;
   }
-
+ 
   if (inviteToken) {
     await enterInvitePage(inviteToken);
     return;
   }
-
+ 
   if (pollToken) {
     await enterPollPage(pollToken);
     return;
   }
-
+ 
+  if (resetToken) {
+    await enterResetPage(resetToken);
+    return;
+  }
+ 
   if (location.hash && location.hash !== '#/') {
     location.replace('#/');
     return;
   }
-
+ 
   const appView = document.getElementById('view-app');
   if (!appView || !appView.classList.contains('is-visible')) {
     await enterMainPage();
@@ -197,12 +228,12 @@ const failHard = (error) => {
   pageContainer.textContent = 'Failed to load UI.';
   console.error(error);
 };
-
+ 
 const runRoute = () => route().catch(failHard);
-
+ 
 initTheme();
 window.addEventListener('hashchange', runRoute);
-
+ 
 (async () => {
   applyDemoAccounts();
   try {
