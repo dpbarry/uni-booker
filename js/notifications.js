@@ -1,4 +1,4 @@
-// Zheng Ye
+// Zheng Ye, Dean Barry
 
 import { apiFetch, getUser } from './global.js';
 import { createDialog, openDialog } from './dialog.js';

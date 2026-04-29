@@ -1,3 +1,5 @@
+// Dean Barry
+
 import { apiFetch, getUser } from './global.js';
 import { createDialog, openDialog, requestDialogClose, setDialogFooterError } from './dialog.js';
 import { resolveToken } from './invite-booking.js';

@@ -1,3 +1,5 @@
+// Dean Barry
+
 import {
     APP_TITLE,
     authKey,

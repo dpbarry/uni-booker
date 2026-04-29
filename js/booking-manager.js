@@ -1,3 +1,5 @@
+// Dean Barry
+
 import { apiFetch, getUser } from './global.js';
 import { openBookingDialog } from './invite-booking.js';
 import { escapeHtml, initialsFromEmail } from './format.js';

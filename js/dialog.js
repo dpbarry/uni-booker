@@ -1,3 +1,5 @@
+// Dean Barry
+
 const CLOSE_ANIMATION_MS = 180;
 const DIALOG_CLOSE_CLASS = 'close';
 const dialogs = new WeakMap();

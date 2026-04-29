@@ -1,3 +1,5 @@
+// Dean Barry
+
 import { apiFetch, getUser } from './global.js';
 import { showToast } from './toast.js';
 import { formatShortDate, formatClockTime } from './format.js';

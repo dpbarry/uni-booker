@@ -1,3 +1,5 @@
+// Dean Barry
+
 import { apiFetch, getUser } from './global.js';
 import { openDialog, requestDialogClose, setDialogFooterError } from './dialog.js';
 import { createCalendar } from './calendar.js';

@@ -1,3 +1,5 @@
+// Dean Barry
+
 import { formatClockTime } from './format.js';
 
 const pad2 = (n) => String(n).padStart(2, '0');

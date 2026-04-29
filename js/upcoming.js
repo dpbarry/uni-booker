@@ -1,4 +1,4 @@
-//Zheng Ye
+// Zheng Ye, Dean Barry
 
 import { apiFetch, getUser } from './global.js';
 import { createCalendar } from './calendar.js';

@@ -1,3 +1,5 @@
+// Dean Barry
+
 const { Resend } = require("resend");
 
 const FROM = process.env.RESEND_FROM;

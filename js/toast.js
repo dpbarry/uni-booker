@@ -1,3 +1,5 @@
+// Dean Barry
+
 const ANIM_MS = 200;
 
 let stackEl = null;
