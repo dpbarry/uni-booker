@@ -35,11 +35,50 @@ const loadUpcomingView = () => {
 
 let rehydrateTimer = null;
 let rehydrateInProgress = false;
+let interactionGuardBound = false;
+let pointerIsDown = false;
+let interactionBlockUntil = 0;
+
+const blockRehydrateFor = (ms) => {
+    const until = Date.now() + ms;
+    if (until > interactionBlockUntil) interactionBlockUntil = until;
+};
+
+const shouldPauseRehydrate = () => pointerIsDown || Date.now() < interactionBlockUntil;
+
+const bindInteractionGuard = () => {
+    if (interactionGuardBound) return;
+    interactionGuardBound = true;
+
+    document.addEventListener('pointerdown', () => {
+        pointerIsDown = true;
+        blockRehydrateFor(700);
+    }, true);
+
+    document.addEventListener('pointerup', () => {
+        pointerIsDown = false;
+        blockRehydrateFor(350);
+    }, true);
+
+    document.addEventListener('pointercancel', () => {
+        pointerIsDown = false;
+        blockRehydrateFor(350);
+    }, true);
+
+    document.addEventListener('click', () => {
+        blockRehydrateFor(250);
+    }, true);
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') blockRehydrateFor(350);
+    }, true);
+};
 
 const rehydrateDbData = async () => {
     const user = getUser();
     if (!user) return;
     if (rehydrateInProgress) return;
+    if (shouldPauseRehydrate()) return;
     rehydrateInProgress = true;
     try {
         const jobs = [refreshUpcoming(), rehydrateBookingViews()];
@@ -58,6 +97,7 @@ const rehydrateDbData = async () => {
 
 const startRehydrateLoop = () => {
     if (rehydrateTimer) return;
+    bindInteractionGuard();
     void rehydrateDbData();
     rehydrateTimer = setInterval(() => {
         void rehydrateDbData();

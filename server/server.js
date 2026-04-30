@@ -214,19 +214,20 @@ app.get("/invite/:token", (req, res) => {
 });
 
 app.post("/slots/create", (req, res) => {
-  const { owner_id, date, time, type } = req.body;
+  const { owner_id, date, time, type, group_title } = req.body;
   if (!owner_id || !date || !time) return res.status(400).json({ error: "Missing fields" });
   if (isPast(date, time)) return res.status(400).json({ error: "Cannot create a slot in the past" });
+  const slotTitle = String(group_title || "").trim() || null;
 
   const result = db
-    .prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-    .run(owner_id, date, time, type ?? "onetime", nowIso());
+    .prepare("INSERT INTO slots (owner_id, date, time, type, group_title, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)")
+    .run(owner_id, date, time, type ?? "onetime", slotTitle, nowIso());
 
   res.json({ id: result.lastInsertRowid });
 });
 
 app.post("/slots/recurring", (req, res) => {
-  const { owner_id, days, time, start_date, weeks } = req.body;
+  const { owner_id, days, time, start_date, weeks, group_title } = req.body;
 
   if (!owner_id || !Array.isArray(days) || !days.length || !time || !start_date || !weeks)
     return res.status(400).json({ error: "Missing fields" });
@@ -244,7 +245,8 @@ app.post("/slots/recurring", (req, res) => {
   const [sy, sm, sd] = start_date.split("-").map(Number);
   const anchorDate = new Date(sy, sm - 1, sd);
 
-  const insertSlot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, 'recurring', 1, ?)");
+  const slotTitle = String(group_title || "").trim() || null;
+  const insertSlot = db.prepare("INSERT INTO slots (owner_id, date, time, type, group_title, active, created_at) VALUES (?, ?, ?, 'recurring', ?, 1, ?)");
 
   const insertMany = db.transaction(() => {
     const slots = [];
@@ -258,7 +260,7 @@ app.post("/slots/recurring", (req, res) => {
 
         const dateStr = toYmd(slotDate);
         if (!isPast(dateStr, time)) {
-          const result = insertSlot.run(owner_id, dateStr, time, nowIso());
+          const result = insertSlot.run(owner_id, dateStr, time, slotTitle, nowIso());
           slots.push(result.lastInsertRowid);
         }
       }
@@ -582,7 +584,7 @@ app.get("/requests/owner/:ownerId", (req, res) => {
 });
 
 app.patch("/requests/:id", async (req, res) => {
-  const { status } = req.body;
+  const { status, slot_name } = req.body;
 
   if (status !== "accepted" && status !== "declined")
     return res.status(400).json({ error: "status must be accepted or declined" });
@@ -599,9 +601,10 @@ app.patch("/requests/:id", async (req, res) => {
     return res.status(404).json({ error: "Request not found or already resolved" });
 
   if (status === "accepted") {
+    const slotTitle = String(slot_name || "").trim() || null;
     db.transaction(() => {
-      const slot = db.prepare("INSERT INTO slots (owner_id, date, time, type, active, created_at) VALUES (?, ?, ?, ?, 1, ?)")
-        .run(request.owner_id, request.date, request.time, "requested", nowIso());
+      const slot = db.prepare("INSERT INTO slots (owner_id, date, time, type, group_title, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)")
+        .run(request.owner_id, request.date, request.time, "requested", slotTitle, nowIso());
 
       db.prepare("INSERT INTO bookings (student_id, slot_id, created_at) VALUES (?, ?, ?)").run(request.student_id, slot.lastInsertRowid, nowIso());
       db.prepare("UPDATE requests SET status = 'accepted' WHERE id = ?").run(request.id);
@@ -641,7 +644,7 @@ app.post("/group-polls", async (req, res) => {
   if (!owner_id || !Array.isArray(slots) || slots.length === 0) {
     return res.status(400).json({ error: "Missing fields" });
   }
-  const pollTitle = String(title || "").trim() || "Group meeting";
+  const pollTitle = String(title || "").trim();
 
   const owner = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'owner'").get(owner_id);
   if (!owner) return res.status(404).json({ error: "Owner not found" });
@@ -649,7 +652,7 @@ app.post("/group-polls", async (req, res) => {
   const created = db.transaction(() => {
     const poll = db
       .prepare("INSERT INTO group_polls (owner_id, title, invite_token, created_at) VALUES (?, ?, ?, ?)")
-      .run(owner_id, title, crypto.randomBytes(16).toString('base64url'), nowIso());
+      .run(owner_id, pollTitle, crypto.randomBytes(16).toString('base64url'), nowIso());
     const pollId = poll.lastInsertRowid;
     const insertSlot = db.prepare("INSERT INTO group_poll_slots (poll_id, date, time) VALUES (?, ?, ?)");
     let inserted = 0;
@@ -727,6 +730,9 @@ app.post("/group-polls/invite/:token/vote", (req, res) => {
 
   const viewer_id = Number(req.body.viewer_id);
   if (!viewer_id) return res.status(400).json({ error: "viewer_id is required" });
+  const voter = db.prepare("SELECT email FROM users WHERE id = ?").get(viewer_id);
+  if (!voter) return res.status(404).json({ error: "Voter not found" });
+  const voterEmail = String(voter.email || "").trim() || `user-${viewer_id}`;
 
   const pollSlots = db.prepare("SELECT id FROM group_poll_slots WHERE poll_id = ?").all(poll.id);
   const pollSlotIds = new Set(pollSlots.map(s => Number(s.id)));
@@ -738,7 +744,7 @@ app.post("/group-polls/invite/:token/vote", (req, res) => {
       db.prepare("DELETE FROM group_poll_votes WHERE voter_id = ? AND poll_slot_id = ?").run(viewer_id, s.id);
     }
     for (const slotId of slot_ids) {
-      db.prepare("INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)").run(slotId, viewer_id, "");
+      db.prepare("INSERT OR IGNORE INTO group_poll_votes (poll_slot_id, voter_id, voter_email) VALUES (?, ?, ?)").run(slotId, viewer_id, voterEmail);
     }
   })();
 
@@ -781,12 +787,13 @@ app.post("/group-polls/:id/finalize", (req, res) => {
     const insertSlot = db.prepare(
       "INSERT INTO slots (owner_id, date, time, type, group_title, active, created_at) VALUES (?, ?, ?, 'group', ?, 1, ?)",
     );
+    const slotTitle = String(poll.title || "").trim() || null;
     for (let w = 0; w < repeatWeeks; w++) {
       const d = new Date(`${chosenSlot.date}T${chosenSlot.time}`);
       d.setDate(d.getDate() + w * 7);
       const date = d.toISOString().slice(0, 10);
       const time = chosenSlot.time;
-      insertSlot.run(poll.owner_id, date, time, poll.title, nowIso());
+      insertSlot.run(poll.owner_id, date, time, slotTitle, nowIso());
     }
     db.prepare("DELETE FROM group_poll_votes WHERE poll_slot_id IN (SELECT id FROM group_poll_slots WHERE poll_id = ?)").run(poll.id);
     db.prepare("DELETE FROM group_poll_slots WHERE poll_id = ?").run(poll.id);

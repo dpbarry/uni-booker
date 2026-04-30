@@ -22,12 +22,6 @@ const nextDateTime = () => {
     return d;
 };
 
-const toDate = (ymd, hm) => {
-    const [y, m, d] = String(ymd).split('-').map(Number);
-    const [h, min] = String(hm).split(':').map(Number);
-    return new Date(y, m - 1, d, h, min, 0, 0);
-};
-
 const setPollOptionFieldWarning = (dialogEl, msg) => {
     const el = dialogEl?.querySelector('.poll-option-date-field-warning');
     if (!el) return;
@@ -55,11 +49,6 @@ const syncPollOptionFieldWarning = (dialogEl) => {
     }
     if (!isFutureDateTime(date, start)) {
         setPollOptionFieldWarning(dialogEl, 'Choose a future time.');
-        submit.disabled = true;
-        return;
-    }
-    if (toDate(date, start) >= toDate(date, end)) {
-        setPollOptionFieldWarning(dialogEl, 'End time must be after start time.');
         submit.disabled = true;
         return;
     }
@@ -205,6 +194,7 @@ export const refreshOwnerPolls = async () => {
         const voteSummary = totalVotes === 1 ? '1 vote' : `${totalVotes} votes`;
         const nOpt = poll.slots.length;
         const optSummary = nOpt === 1 ? '1 time option' : `${nOpt} time options`;
+        const pollTitle = String(poll.title || '').trim() || 'Group meeting';
 
         let slotsHtml = '';
         for (let j = 0; j < poll.slots.length; j++) {
@@ -226,7 +216,7 @@ export const refreshOwnerPolls = async () => {
         li.innerHTML = `
         <div class="owner-poll-card-head">
             <div class="owner-poll-card-lead">
-                <span class="owner-poll-card-title">${escapeHtml(poll.title)}</span>
+                <span class="owner-poll-card-title">${escapeHtml(pollTitle)}</span>
                 <span class="owner-poll-card-meta">${voteSummary} · ${optSummary}</span>
             </div>
             <div class="owner-poll-card-tools">

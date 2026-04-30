@@ -1,6 +1,6 @@
 // Mariana Diaz Betancourt
 
-import { apiFetch } from './global.js';
+import { apiFetch, authKey, userKey } from './global.js';
 import { showToast } from './toast.js';
 
 export const openResetPage = async (token) => {
@@ -50,10 +50,6 @@ export const openResetPage = async (token) => {
             passwordError.textContent = 'Required';
             return;
         }
-        if (password.length < 6) {
-            passwordError.textContent = 'At least 6 characters';
-            return;
-        }
         if (!confirm) {
             confirmError.textContent = 'Required';
             return;
@@ -69,12 +65,9 @@ export const openResetPage = async (token) => {
                 method: 'POST',
                 body: { token, password },
             });
-            container.innerHTML = `
-                <div class="reset-success">
-                    <p>Your password has been updated!</p>
-                    <a href="#/signin" class="auth-action-button auth-signin-button press" style="display:inline-flex; justify-content:center; text-decoration:none; margin-top:1rem;">Sign in</a>
-                </div>
-            `;
+            sessionStorage.removeItem(authKey);
+            sessionStorage.removeItem(userKey);
+            location.replace('#/signin');
         } catch (err) {
             errorEl.textContent = err.message || 'Something went wrong';
             errorEl.hidden = false;

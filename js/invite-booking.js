@@ -176,7 +176,7 @@ const renderOnePollCard = (entry, viewer, isOwnerViewing) => {
                   const selectedCls = selected.has(slot.id) ? ' is-selected' : '';
                   const voteCount = Number(slot.vote_count) || 0;
                   const voteLabel = voteCount === 1 ? '1 vote' : `${voteCount} votes`;
-                  return `<button type="button" class="poll-vote-option${selectedCls}" data-action="toggle-poll-vote" data-slot-id="${slot.id}" aria-pressed="${selected.has(slot.id) ? 'true' : 'false'}" title="Tap to add or remove your vote" ${isStudent ? '' : 'disabled'}>
+                  return `<button type="button" class="poll-vote-option${selectedCls}" data-action="toggle-poll-vote" data-slot-id="${slot.id}" data-vote-count="${voteCount}" aria-pressed="${selected.has(slot.id) ? 'true' : 'false'}" title="Tap to add or remove your vote" ${isStudent ? '' : 'disabled'}>
                 <span class="poll-vote-pick" aria-hidden="true">
                     <svg class="poll-vote-check" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#check" /></svg>
                 </span>
@@ -404,8 +404,14 @@ const bindInteractions = (host, mode, state) => {
             if (viewer?.role !== 'student') return;
             const pollCard = pollOption.closest('.booking-poll-card');
             if (!pollCard || pollCard.classList.contains('poll-vote-saving')) return;
+            const wasSelected = pollOption.classList.contains('is-selected');
             pollOption.classList.toggle('is-selected');
             pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
+            const prevCount = Math.max(0, Number(pollOption.dataset.voteCount) || 0);
+            const nextCount = Math.max(0, prevCount + (wasSelected ? -1 : 1));
+            pollOption.dataset.voteCount = String(nextCount);
+            const meta = pollOption.querySelector('.poll-vote-meta');
+            if (meta) meta.textContent = nextCount === 1 ? '1 vote' : `${nextCount} votes`;
             const rawPollId = Number(pollCard.dataset.pollId);
             const slotIds = [...pollCard.querySelectorAll('.poll-vote-option.is-selected')].map((b) => Number(b.dataset.slotId));
             const voteBody = { viewer_id: viewer.id, slot_ids: slotIds };
@@ -420,6 +426,8 @@ const bindInteractions = (host, mode, state) => {
             } catch (err) {
                 pollOption.classList.toggle('is-selected');
                 pollOption.setAttribute('aria-pressed', pollOption.classList.contains('is-selected') ? 'true' : 'false');
+                pollOption.dataset.voteCount = String(prevCount);
+                if (meta) meta.textContent = prevCount === 1 ? '1 vote' : `${prevCount} votes`;
                 setError(activeState.container, err.message || 'Could not update your vote.');
             } finally {
                 pollCard.classList.remove('poll-vote-saving');

@@ -311,6 +311,7 @@ export const handleSlotManagerSubmit = async (e) => {
                     time: `${time}:00`,
                     start_date: date,
                     weeks: repeatWeeks,
+                    group_title: slotName || null,
                 },
             });
         } 
